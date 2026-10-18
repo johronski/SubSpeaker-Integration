@@ -24,7 +24,7 @@ Telefonen och Chromecasten måste vara på samma wifi. Gästnätverk och routrar
 
 GitHub Actions bygger och testar vid varje push. När `version.txt` får ett nytt versionsnummer skapas automatiskt en release med APK.
 
-Signering kräver fyra hemligheter i repot: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Utan dem signeras APK:n med en tillfällig nyckel, och då måste appen avinstalleras före varje uppdatering.
+APK:n signeras med en fast nyckel som ligger i repot (`app/subspeaker.keystore`), så att nya versioner kan installeras ovanpå den gamla. Nyckeln är offentlig, vilket räcker för en hobbyapp men inte skyddar mot att någon annan signerar en version.
 
 Lokalt: `./gradlew assembleRelease` (kräver Android SDK och JDK 17).
 

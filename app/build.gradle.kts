@@ -19,6 +19,13 @@ android {
     }
 
     signingConfigs {
+        // Fast nyckel i repot (som i RadioCast), så att nya versioner installeras ovanpå den gamla.
+        create("fixed") {
+            storeFile = file("subspeaker.keystore")
+            storePassword = "subspeaker"
+            keyAlias = "subspeaker"
+            keyPassword = "subspeaker"
+        }
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)
@@ -30,13 +37,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
-            signingConfig = if (keystorePath != null) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName(if (keystorePath != null) "release" else "fixed")
         }
     }
 
@@ -71,6 +77,7 @@ dependencies {
     implementation("androidx.mediarouter:mediarouter:1.7.0")
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation("junit:junit:4.13.2")

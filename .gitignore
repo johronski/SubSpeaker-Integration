@@ -8,3 +8,4 @@ build/
 *.keystore
 captures/
 .kotlin/
+!app/subspeaker.keystore

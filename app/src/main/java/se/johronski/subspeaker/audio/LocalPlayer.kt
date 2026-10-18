@@ -6,10 +6,14 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
-import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.max
@@ -21,11 +25,11 @@ import kotlin.math.roundToInt
  *
  * Två metoder:
  * - DIRECT: AudioTrack, signalen skrivs direkt till ljudsystemet.
- * - MEDIA: Androids mediaspelare läser WAV-filen från appens egen ljudserver.
+ * - MEDIA: ExoPlayer (samma spelare som RadioCast) läser WAV-filen från appens egen ljudserver.
  */
 class LocalPlayer(private val context: Context) {
 
-    enum class Method(val label: String) { DIRECT("Direkt"), MEDIA("Mediaspelare") }
+    enum class Method(val label: String) { DIRECT("Direkt"), MEDIA("ExoPlayer") }
 
     data class State(
         val playing: Boolean = false,
@@ -50,7 +54,7 @@ class LocalPlayer(private val context: Context) {
     @Volatile
     private var track: AudioTrack? = null
     private var thread: Thread? = null
-    private var media: MediaPlayer? = null
+    private var media: ExoPlayer? = null
 
     /** Appens egen nivå, 0–1, ovanpå telefonens mediavolym. */
     @Volatile
@@ -58,7 +62,7 @@ class LocalPlayer(private val context: Context) {
         set(v) {
             field = v.coerceIn(0f, 1f)
             try { track?.setVolume(field) } catch (_: Exception) {}
-            try { media?.setVolume(field, field) } catch (_: Exception) {}
+            try { media?.volume = field } catch (_: Exception) {}
         }
 
     fun outputDevices(): List<AudioDeviceInfo> =
@@ -93,7 +97,7 @@ class LocalPlayer(private val context: Context) {
         thread = null
         media?.let {
             try { it.stop() } catch (_: Exception) {}
-            it.release()
+            try { it.release() } catch (_: Exception) {}
         }
         media = null
         main.removeCallbacksAndMessages(null)
@@ -192,44 +196,54 @@ class LocalPlayer(private val context: Context) {
 
     private fun startMedia(url: String, device: AudioDeviceInfo?) {
         try {
-            val mp = MediaPlayer()
-            media = mp
-            mp.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build(),
-            )
-            if (device != null && Build.VERSION.SDK_INT >= 28) mp.setPreferredDevice(device)
-            mp.setVolume(gain, gain)
-            mp.setOnPreparedListener {
-                it.start()
-                _state.value = _state.value.copy(debug = "Mediaspelare startad · ${mediaVolumeText()}")
-                pollMedia()
-            }
-            mp.setOnCompletionListener {
-                _state.value = _state.value.copy(playing = false, debug = "Mediaspelare klar")
-            }
-            mp.setOnErrorListener { _, what, extra ->
-                _state.value = _state.value.copy(playing = false, error = "Mediaspelaren gav fel ($what, $extra)")
-                true
-            }
-            mp.setDataSource(url)
-            _state.value = _state.value.copy(debug = "Mediaspelare förbereder $url")
-            mp.prepareAsync()
+            val p = ExoPlayer.Builder(context)
+                .setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(C.USAGE_MEDIA)
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .build(),
+                    false,
+                )
+                .build()
+            media = p
+            p.volume = gain
+            p.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
+                        _state.value = _state.value.copy(debug = "ExoPlayer spelar · ${mediaVolumeText()}")
+                        pollMedia()
+                    }
+                }
+
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_ENDED) {
+                        _state.value = _state.value.copy(playing = false, debug = "ExoPlayer klar")
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    _state.value = _state.value.copy(
+                        playing = false,
+                        error = "ExoPlayer gav fel: ${error.errorCodeName} ${error.message ?: ""}",
+                    )
+                }
+            })
+            p.setMediaItem(MediaItem.fromUri(url))
+            p.prepare()
+            p.playWhenReady = true
+            val note = if (device != null) " (vald utgång används inte av denna metod)" else ""
+            _state.value = _state.value.copy(debug = "ExoPlayer förbereder $url$note")
         } catch (e: Exception) {
-            _state.value = _state.value.copy(playing = false, error = "Mediaspelaren startade inte: ${e.javaClass.simpleName}: ${e.message}")
+            _state.value = _state.value.copy(playing = false, error = "ExoPlayer startade inte: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
     private fun pollMedia() {
-        val mp = media ?: return
+        val p = media ?: return
         try {
-            val routed = if (Build.VERSION.SDK_INT >= 28) mp.routedDevice?.let { describeOutput(it) } else null
             _state.value = _state.value.copy(
-                positionMs = mp.currentPosition.toLong(),
-                routedDevice = routed ?: _state.value.routedDevice,
-                debug = "Mediaspelare ${if (mp.isPlaying) "spelar" else "spelar inte"} · ${mediaVolumeText()}",
+                positionMs = p.currentPosition,
+                debug = "ExoPlayer ${if (p.isPlaying) "spelar" else "spelar inte"} · ${mediaVolumeText()}",
             )
         } catch (_: Exception) {
             return

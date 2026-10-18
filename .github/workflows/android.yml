@@ -46,7 +46,7 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           else
-            echo "::warning::Ingen signeringsnyckel – APK:n signeras med en tillfällig nyckel."
+            echo "Använder den fasta nyckeln i repot."
           fi
 
       - name: Enhetstester
