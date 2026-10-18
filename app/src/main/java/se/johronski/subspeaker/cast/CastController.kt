@@ -1,26 +1,32 @@
 package se.johronski.subspeaker.cast
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
-import com.google.android.gms.cast.MediaInfo
-import com.google.android.gms.cast.MediaLoadRequestData
-import com.google.android.gms.cast.MediaMetadata
-import com.google.android.gms.cast.MediaStatus
-import com.google.android.gms.cast.framework.CastContext
-import com.google.android.gms.cast.framework.CastSession
-import com.google.android.gms.cast.framework.SessionManagerListener
-import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
+/**
+ * Styr en Chromecast direkt över nätverket (samma metod som RadioCast),
+ * utan Googles Cast-bibliotek.
+ */
 class CastController(context: Context) {
 
+    data class Device(val name: String, val host: String, val port: Int, val group: Boolean, val status: String) {
+        val key: String get() = "$host:$port"
+    }
+
     data class State(
-        val available: Boolean = false,
+        val available: Boolean = true,
         val unavailableReason: String? = null,
+        val searching: Boolean = false,
+        val devices: List<Device> = emptyList(),
+        val connecting: Boolean = false,
         val connected: Boolean = false,
         val deviceName: String? = null,
         val deviceModel: String? = null,
@@ -37,80 +43,74 @@ class CastController(context: Context) {
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state
 
-    private val castContext: CastContext? = try {
-        @Suppress("DEPRECATION")
-        CastContext.getSharedInstance(context.applicationContext)
-    } catch (e: Exception) {
-        _state.value = State(unavailableReason = "Chromecast-stöd saknas: ${e.message}")
-        null
-    }
+    private val io = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
+    private val discovery = CastDiscovery(context, object : CastDiscovery.Listener {
+        override fun onFound(name: String, host: String, port: Int, id: String, status: String, group: Boolean) {
+            val d = Device(name, host, port, group, status)
+            val list = _state.value.devices.filterNot { it.key == d.key } + d
+            _state.value = _state.value.copy(devices = list.sortedBy { it.name.lowercase(Locale.ROOT) })
+        }
 
-    private var session: CastSession? = null
-    private var client: RemoteMediaClient? = null
+        override fun onError(message: String) {
+            log(message)
+        }
+    })
+
+    @Volatile
+    private var client: CastClient? = null
+
+    @Volatile
     private var loadStartedAt = 0L
+
+    @Volatile
     private var waitingForPlay = false
 
-    init {
-        if (castContext != null) _state.value = _state.value.copy(available = true)
-    }
-
-    private val mediaCallback = object : RemoteMediaClient.Callback() {
-        override fun onStatusUpdated() = updateStatus()
-    }
-
-    private val progressListener = RemoteMediaClient.ProgressListener { progressMs, durationMs ->
-        _state.value = _state.value.copy(positionMs = progressMs, durationMs = durationMs)
-    }
-
-    private val sessionListener = object : SessionManagerListener<CastSession> {
-        override fun onSessionStarted(s: CastSession, sessionId: String) = attach(s, "Ansluten")
-        override fun onSessionResumed(s: CastSession, wasSuspended: Boolean) = attach(s, "Återansluten")
-        override fun onSessionEnded(s: CastSession, error: Int) = detach("Frånkopplad (kod $error)")
-        override fun onSessionStartFailed(s: CastSession, error: Int) = log("Anslutning misslyckades (kod $error)")
-        override fun onSessionResumeFailed(s: CastSession, error: Int) = log("Återanslutning misslyckades (kod $error)")
-        override fun onSessionSuspended(s: CastSession, reason: Int) = log("Anslutningen pausad (kod $reason)")
-        override fun onSessionStarting(s: CastSession) = log("Ansluter …")
-        override fun onSessionEnding(s: CastSession) {}
-        override fun onSessionResuming(s: CastSession, sessionId: String) {}
-    }
-
     fun onResume() {
-        val ctx = castContext ?: return
-        ctx.sessionManager.addSessionManagerListener(sessionListener, CastSession::class.java)
-        ctx.sessionManager.currentCastSession?.let { if (it.isConnected) attach(it, "Ansluten") }
+        _state.value = _state.value.copy(searching = true)
+        discovery.start()
     }
 
     fun onPause() {
-        castContext?.sessionManager?.removeSessionManagerListener(sessionListener, CastSession::class.java)
+        discovery.stop()
+        _state.value = _state.value.copy(searching = false)
     }
 
-    private fun attach(s: CastSession, msg: String) {
-        if (session === s && client != null) return
-        client?.unregisterCallback(mediaCallback)
-        client?.removeProgressListener(progressListener)
-        session = s
-        client = s.remoteMediaClient?.also {
-            it.registerCallback(mediaCallback)
-            it.addProgressListener(progressListener, 500)
+    fun connect(device: Device) {
+        _state.value = _state.value.copy(connecting = true, lastError = null)
+        log("Ansluter till ${device.name} (${device.host})")
+        io.execute {
+            client?.close()
+            val c = CastClient(device.host, device.port, listener)
+            try {
+                c.connect()
+                client = c
+                c.prepare()
+                _state.value = _state.value.copy(
+                    connecting = false,
+                    connected = true,
+                    deviceName = device.name,
+                    deviceModel = if (device.group) "högtalargrupp" else "Chromecast",
+                )
+                log("Ansluten till ${device.name}")
+            } catch (e: Exception) {
+                c.close()
+                client = null
+                _state.value = _state.value.copy(connecting = false, connected = false, lastError = "Kunde inte ansluta: ${e.message}")
+                log("Anslutning misslyckades: ${e.message}")
+            }
         }
-        val dev = s.castDevice
-        _state.value = _state.value.copy(
-            connected = true,
-            deviceName = dev?.friendlyName,
-            deviceModel = dev?.modelName,
-            volume = safeVolume(s),
-        )
-        log("$msg till ${dev?.friendlyName ?: "okänd enhet"} (${dev?.modelName ?: "okänd modell"})")
-        updateStatus()
     }
 
-    private fun detach(msg: String) {
-        client?.unregisterCallback(mediaCallback)
-        client?.removeProgressListener(progressListener)
+    fun disconnect() {
+        val c = client ?: return
+        io.execute {
+            try { c.stopReceiver() } catch (_: Exception) {}
+            c.close()
+        }
         client = null
-        session = null
-        _state.value = _state.value.copy(connected = false, deviceName = null, deviceModel = null, volume = null, playerState = "–")
-        log(msg)
+        _state.value = _state.value.copy(connected = false, deviceName = null, deviceModel = null, playerState = "–")
+        log("Frånkopplad")
     }
 
     fun play(url: String, title: String, durationMs: Long) {
@@ -119,83 +119,87 @@ class CastController(context: Context) {
             log("Inte ansluten till någon Chromecast")
             return
         }
-        val meta = MediaMetadata(MediaMetadata.MEDIA_TYPE_MUSIC_TRACK).apply {
-            putString(MediaMetadata.KEY_TITLE, title)
-            putString(MediaMetadata.KEY_ARTIST, "SubSpeaker")
-            putString(MediaMetadata.KEY_ALBUM_TITLE, "Testsignaler")
-        }
-        val info = MediaInfo.Builder(url)
-            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-            .setContentType("audio/wav")
-            .setMetadata(meta)
-            .setStreamDuration(durationMs)
-            .build()
-        val req = MediaLoadRequestData.Builder()
-            .setMediaInfo(info)
-            .setAutoplay(true)
-            .build()
         loadStartedAt = SystemClock.elapsedRealtime()
         waitingForPlay = true
         _state.value = _state.value.copy(title = title, latencyMs = null, lastError = null, positionMs = 0, durationMs = durationMs)
         log("Laddar: $title")
-        c.load(req).setResultCallback { result ->
-            if (!result.status.isSuccess) {
-                val err = "Laddning misslyckades: kod ${result.status.statusCode} ${result.status.statusMessage ?: ""}"
-                _state.value = _state.value.copy(lastError = err)
+        io.execute {
+            try {
+                c.play(url, title, "audio/wav", "BUFFERED")
+                pollPosition()
+            } catch (e: Exception) {
                 waitingForPlay = false
-                log(err)
+                _state.value = _state.value.copy(lastError = "Uppspelning misslyckades: ${e.message}")
+                log("Uppspelning misslyckades: ${e.message}")
             }
         }
     }
 
     fun stop() {
-        client?.stop()
+        val c = client ?: return
         waitingForPlay = false
+        io.execute {
+            try { c.stopMedia() } catch (e: Exception) { log("Stopp misslyckades: ${e.message}") }
+        }
         log("Stopp")
     }
 
     fun setVolume(v: Double) {
-        val s = session ?: return
-        try {
-            s.volume = v.coerceIn(0.0, 1.0)
-            _state.value = _state.value.copy(volume = v)
-        } catch (e: Exception) {
-            log("Kunde inte ändra volym: ${e.message}")
-        }
-    }
-
-    fun refreshVolume() {
-        val s = session ?: return
-        _state.value = _state.value.copy(volume = safeVolume(s))
-    }
-
-    private fun safeVolume(s: CastSession): Double? = try { s.volume } catch (e: Exception) { null }
-
-    private fun updateStatus() {
         val c = client ?: return
-        val ms = c.mediaStatus
-        val ps = ms?.playerState ?: MediaStatus.PLAYER_STATE_UNKNOWN
-        val name = when (ps) {
-            MediaStatus.PLAYER_STATE_IDLE -> "Vilar"
-            MediaStatus.PLAYER_STATE_PLAYING -> "Spelar"
-            MediaStatus.PLAYER_STATE_PAUSED -> "Pausad"
-            MediaStatus.PLAYER_STATE_BUFFERING -> "Buffrar"
-            MediaStatus.PLAYER_STATE_UNKNOWN -> "Okänt"
-            else -> "Läge $ps"
+        val level = v.coerceIn(0.0, 1.0)
+        _state.value = _state.value.copy(volume = level)
+        io.execute {
+            try { c.setVolume(level) } catch (e: Exception) { log("Kunde inte ändra volym: ${e.message}") }
         }
-        var latency = _state.value.latencyMs
-        if (ps == MediaStatus.PLAYER_STATE_PLAYING && waitingForPlay) {
-            latency = SystemClock.elapsedRealtime() - loadStartedAt
-            waitingForPlay = false
-            log("Spelar efter $latency ms")
+    }
+
+    private fun pollPosition() {
+        main.removeCallbacksAndMessages(null)
+        val tick = object : Runnable {
+            override fun run() {
+                val c = client ?: return
+                val st = _state.value.playerState
+                if (st == "Vilar" && !waitingForPlay) return
+                io.execute { try { c.requestMediaStatus() } catch (_: Exception) {} }
+                main.postDelayed(this, 1000)
+            }
         }
-        var err = _state.value.lastError
-        if (ps == MediaStatus.PLAYER_STATE_IDLE && ms?.idleReason == MediaStatus.IDLE_REASON_ERROR) {
-            err = "Chromecasten rapporterade fel vid uppspelning"
-            if (waitingForPlay) log(err)
-            waitingForPlay = false
+        main.postDelayed(tick, 1000)
+    }
+
+    private val listener = object : CastClient.Listener {
+        override fun onMessage(text: String) {}
+
+        override fun onDisconnected(reason: String) {
+            client = null
+            _state.value = _state.value.copy(connected = false, playerState = "–")
+            log(reason)
         }
-        _state.value = _state.value.copy(playerState = name, latencyMs = latency, lastError = err, volume = session?.let { safeVolume(it) })
+
+        override fun onPlayerState(state: String) {
+            val name = when (state) {
+                "PLAYING" -> "Spelar"
+                "BUFFERING" -> "Buffrar"
+                "PAUSED" -> "Pausad"
+                "IDLE" -> "Vilar"
+                else -> state
+            }
+            var latency = _state.value.latencyMs
+            if (state == "PLAYING" && waitingForPlay) {
+                latency = SystemClock.elapsedRealtime() - loadStartedAt
+                waitingForPlay = false
+                log("Spelar efter $latency ms")
+            }
+            _state.value = _state.value.copy(playerState = name, latencyMs = latency)
+        }
+
+        override fun onVolume(level: Double) {
+            _state.value = _state.value.copy(volume = level)
+        }
+
+        override fun onPosition(seconds: Double) {
+            _state.value = _state.value.copy(positionMs = (seconds * 1000).toLong())
+        }
     }
 
     private fun log(msg: String) {

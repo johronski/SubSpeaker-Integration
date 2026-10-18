@@ -57,10 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.mediarouter.app.MediaRouteButton
-import com.google.android.gms.cast.framework.CastButtonFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -169,7 +166,17 @@ fun DiagnosticsScreen(services: AppServices) {
         Section("1. Uppspelning") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Output.entries.forEach { o ->
-                    FilterChip(selected = output == o, onClick = { output = o }, label = { Text(o.label) })
+                    FilterChip(
+                        selected = output == o,
+                        onClick = {
+                            if (o != output) {
+                                services.local.stop()
+                                if (cast.connected) services.cast.stop()
+                            }
+                            output = o
+                        },
+                        label = { Text(o.label) },
+                    )
                 }
             }
             if (output == Output.PHONE) {
@@ -193,25 +200,26 @@ fun DiagnosticsScreen(services: AppServices) {
                         "(t.ex. USB-C-adaptern) till subbens linjeingång. Bluetooth ger fördröjning och komprimering.",
                 )
             }
-            if (output == Output.CAST) Row(verticalAlignment = Alignment.CenterVertically) {
-                if (cast.available) {
-                    AndroidView(
-                        factory = { ctx ->
-                            MediaRouteButton(ctx).apply {
-                                CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, this)
-                            }
-                        },
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
+            if (output == Output.CAST) {
                 Text(
                     when {
-                        !cast.available -> cast.unavailableReason ?: "Chromecast-stöd saknas"
-                        cast.connected -> "Ansluten: ${cast.deviceName} (${cast.deviceModel})"
-                        else -> "Tryck på Cast-ikonen och välj din Chromecast Audio"
+                        cast.connected -> "Ansluten: ${cast.deviceName}"
+                        cast.connecting -> "Ansluter …"
+                        cast.devices.isEmpty() -> "Söker efter Chromecast på nätverket …"
+                        else -> "Välj din Chromecast:"
                     },
+                    fontWeight = FontWeight.Medium,
                 )
+                cast.devices.forEach { d ->
+                    val isCurrent = cast.connected && cast.deviceName == d.name
+                    ChoiceRow(
+                        d.name + (if (d.status.isNotEmpty()) "  ·  ${d.status}" else "") + (if (d.group) "  (grupp)" else ""),
+                        isCurrent,
+                    ) { if (!isCurrent) services.cast.connect(d) }
+                }
+                if (cast.connected) {
+                    OutlinedButton(onClick = { services.cast.disconnect() }) { Text("Koppla från") }
+                }
             }
             if (output == Output.CAST) {
                 Muted("Telefonens adress: ${services.localIp() ?: "inget wifi hittat"} · port 8089")
@@ -292,6 +300,7 @@ fun DiagnosticsScreen(services: AppServices) {
                 if (local.debug.isNotEmpty()) Muted(local.debug)
                 local.error?.let { Text(it, color = Bad) }
             } else {
+                if (!cast.connected) Text("Tryck på din Chromecast i listan ovan först.", color = Warn)
                 Text(
                     "Läge: ${cast.playerState} · ${fmtTime(cast.positionMs)} / ${fmtTime(cast.durationMs)}" +
                         (cast.latencyMs?.let { " · startade efter ${it} ms" } ?: ""),
@@ -438,7 +447,7 @@ fun DiagnosticsScreen(services: AppServices) {
 
         // ---------- 3. Testplan ----------
         Section("3. Testplan") {
-            Step("A", "Spela 90 Hz ren ton på låg volym, via Chromecast eller telefonen med kabel. Hörs den?")
+            Step("A", "Välj Chromecast, tryck på din Chromecast Audio i listan och spela 90 Hz ren ton på låg volym. Hörs den i subben och Genelecen?")
             Step("B", "Starta mätning med inbyggd mikrofon. Är nivån stabil (grön)? Spara som \"inbyggd\".")
             Step("C", "Koppla in Velodyne-mikrofonen via splittern, tryck Uppdatera, välj den och mät. Spara. Gör samma med Yamaha-mikrofonen.")
             Step("D", "Prova de tre ljudkällorna med samma mikrofon. Notera vilken som ger stabilast nivå.")
