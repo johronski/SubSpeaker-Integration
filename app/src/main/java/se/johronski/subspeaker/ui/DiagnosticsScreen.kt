@@ -114,6 +114,8 @@ fun DiagnosticsScreen(services: AppServices) {
     var selectedOutputId by remember { mutableStateOf<Int?>(null) }
     var localGain by remember { mutableFloatStateOf(services.local.gain) }
     var method by remember { mutableStateOf(LocalPlayer.Method.DIRECT) }
+    val sweep by services.sweep.state.collectAsState()
+    var sweepLabel by remember { mutableStateOf("fas 0") }
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
@@ -445,25 +447,99 @@ fun DiagnosticsScreen(services: AppServices) {
             }
         }
 
-        // ---------- 3. Testplan ----------
-        Section("3. Testplan") {
+        // ---------- 3. Svepmätning ----------
+        Section("3. Svepmätning") {
+            Muted(
+                "Mäter hela kurvan 20–300 Hz med ett svep på 8 s via vald uppspelning (avsnitt 1) " +
+                    "och vald mikrofon och ljudkälla (avsnitt 2). Mätningar med samma etikett slås ihop till ett medelvärde.",
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("fas 0", "fas 90", "fas 180", "fas 270").forEach { l ->
+                    FilterChip(selected = sweepLabel == l, onClick = { sweepLabel = l }, label = { Text(l) })
+                }
+            }
+            OutlinedTextField(
+                value = sweepLabel,
+                onValueChange = { sweepLabel = it },
+                label = { Text("Etikett") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = {
+                    services.sweep.measure(
+                        label = sweepLabel,
+                        useCast = output == Output.CAST,
+                        source = source,
+                        micDevice = devices.firstOrNull { it.id == selectedDeviceId },
+                        outDevice = outputs.firstOrNull { it.id == selectedOutputId },
+                        method = method,
+                    )
+                },
+                enabled = hasMicPermission && !sweep.busy && (output == Output.PHONE || cast.connected),
+                modifier = Modifier.height(56.dp),
+            ) { Text(if (sweep.busy) "Mäter …" else "Mät", fontSize = 18.sp) }
+            if (!hasMicPermission) Text("Ge appen tillgång till mikrofonen i avsnitt 2 först.", color = Warn)
+            if (output == Output.CAST && !cast.connected) Text("Anslut till Chromecast i avsnitt 1 först.", color = Warn)
+            if (sweep.status.isNotEmpty()) Text(sweep.status)
+            sweep.error?.let { Text(it, color = Warn) }
+
+            val groups = sweep.groups
+            if (groups.isNotEmpty()) {
+                SweepChart(groups.map { it.db })
+                groups.forEachIndexed { i, g ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(
+                            Modifier
+                                .size(12.dp)
+                                .background(SeriesColors[i % SeriesColors.size]),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            String.format(
+                                Locale.ROOT,
+                                "%s (n=%d) · jämnhet ±%.1f dB · nivå %.1f dB",
+                                g.label, g.count, g.flatnessDb, g.meanDb,
+                            ),
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+                sweep.best?.let {
+                    Text(
+                        "Jämnast mellan 40 och 150 Hz: ${it.label}",
+                        color = Good,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { services.sweep.removeLast() }, enabled = !sweep.busy) { Text("Ta bort senaste") }
+                    OutlinedButton(onClick = { services.sweep.clear() }, enabled = !sweep.busy) { Text("Rensa") }
+                }
+            }
+            Muted("Tips: mät varje etikett på 3–5 platser inom en halvmeter runt lyssningsplatsen för ett pålitligare medelvärde.")
+        }
+
+        // ---------- 4. Testplan ----------
+        Section("4. Testplan") {
             Step("A", "Välj Chromecast, tryck på din Chromecast Audio i listan och spela 90 Hz ren ton på låg volym. Hörs den i subben och Genelecen?")
             Step("B", "Starta mätning med inbyggd mikrofon. Är nivån stabil (grön)? Spara som \"inbyggd\".")
             Step("C", "Koppla in Velodyne-mikrofonen via splittern, tryck Uppdatera, välj den och mät. Spara. Gör samma med Yamaha-mikrofonen.")
             Step("D", "Prova de tre ljudkällorna med samma mikrofon. Notera vilken som ger stabilast nivå.")
             Step("E", "Mute-test: spara en mätning, tryck MUTE på Velodynens fjärrkontroll, vänta 3 s och spara igen. Lyssna samtidigt: tystnar även Genelecen?")
             Step("F", "Volymtest: spara, tryck VOLUME + två gånger på fjärrkontrollen, spara igen. Tryck sedan VOLUME − två gånger.")
-            Step("G", "Fas-test: tryck 0, 90, 180 och 270 på fjärrkontrollen och spara en mätning efter varje.")
+            Step("G", "Fas med svep (avsnitt 3): tryck 0 på fjärrkontrollen, välj etiketten \"fas 0\" och tryck Mät. Gör samma för 90, 180 och 270. Mät gärna varje läge på 3 platser.")
             Step("H", "Tryck Dela rapport nedan och skicka den till mig.")
         }
 
-        // ---------- 4. Rapport ----------
-        Section("4. Rapport") {
+        // ---------- 5. Rapport ----------
+        Section("5. Rapport") {
             Button(onClick = {
                 val report = buildReport(context, services, cast, mic, saved, serverTest) +
                     "\nTELEFONUPPSPELNING\nVald källa: ${output.label}\nUtgång: ${local.routedDevice ?: "–"}\n" +
                     "Metod: ${local.method?.label ?: method.label}\nAppens nivå: ${(localGain * 100).toInt()} %\n" +
-                    "Status: ${local.debug}\nFel: ${local.error ?: "–"}\n"
+                    "Status: ${local.debug}\nFel: ${local.error ?: "–"}\n" +
+                    sweepReport(sweep)
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "SubSpeaker diagnosrapport")
@@ -598,4 +674,32 @@ private fun buildReport(
             )
         }
     }
+}
+
+private fun sweepReport(sweep: se.johronski.subspeaker.SweepController.State): String = buildString {
+    appendLine()
+    appendLine("SVEPMÄTNINGAR")
+    if (sweep.curves.isEmpty()) {
+        appendLine("  (inga)")
+        return@buildString
+    }
+    sweep.curves.forEach {
+        appendLine(
+            String.format(
+                Locale.ROOT, "  %s | %s | fördröjning %.3f s | brusmarginal %.0f dB | %s",
+                it.time, it.label, it.delaySeconds, it.snrDb, it.device,
+            ),
+        )
+    }
+    val f = se.johronski.subspeaker.audio.SweepAnalyzer.FREQUENCIES
+    val idx = listOf(20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0, 250.0)
+        .map { t -> f.indices.minByOrNull { kotlin.math.abs(f[it] - t) }!! }
+    appendLine("  Medelkurvor (dB) vid " + idx.joinToString(" ") { SignalSpec.fmt(Math.round(f[it] * 10) / 10.0) } + " Hz:")
+    sweep.groups.forEach { g ->
+        appendLine(
+            String.format(Locale.ROOT, "  %s (n=%d, jämnhet ±%.1f, nivå %.1f): ", g.label, g.count, g.flatnessDb, g.meanDb) +
+                idx.joinToString(" ") { String.format(Locale.ROOT, "%.1f", g.db[it]) },
+        )
+    }
+    sweep.best?.let { appendLine("  Jämnast 40–150 Hz: ${it.label}") }
 }

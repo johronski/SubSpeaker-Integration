@@ -54,17 +54,24 @@ object SignalGenerator {
     }
 
     /** Logaritmiskt svep från f1 till f2 (f1 > f2 ger svep nedåt). */
-    fun logSweep(f1: Double, f2: Double, seconds: Double, dbfs: Double, fadeMs: Double = 200.0): FloatArray {
-        val n = (seconds * SAMPLE_RATE).toInt()
+    fun logSweep(
+        f1: Double,
+        f2: Double,
+        seconds: Double,
+        dbfs: Double,
+        fadeMs: Double = 200.0,
+        sampleRate: Int = SAMPLE_RATE,
+    ): FloatArray {
+        val n = (seconds * sampleRate).toInt()
         val a = amplitude(dbfs)
         val out = FloatArray(n)
         val k = seconds / ln(f2 / f1)
         for (i in 0 until n) {
-            val t = i.toDouble() / SAMPLE_RATE
+            val t = i.toDouble() / sampleRate
             val phase = 2.0 * PI * f1 * k * (exp(t / k) - 1.0)
             out[i] = (a * sin(phase)).toFloat()
         }
-        fade(out, fadeMs)
+        fade(out, fadeMs, sampleRate)
         return out
     }
 
@@ -95,8 +102,8 @@ object SignalGenerator {
         return out
     }
 
-    private fun fade(x: FloatArray, ms: Double) {
-        val n = min((SAMPLE_RATE * ms / 1000.0).toInt(), x.size / 2)
+    private fun fade(x: FloatArray, ms: Double, sampleRate: Int = SAMPLE_RATE) {
+        val n = min((sampleRate * ms / 1000.0).toInt(), x.size / 2)
         if (n <= 0) return
         for (i in 0 until n) {
             val g = i.toFloat() / n
