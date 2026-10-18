@@ -28,6 +28,7 @@ class AppServices(private val context: Context) {
     val mic = MicMeter(context)
     val local = LocalPlayer(context)
     val sweep = SweepController(this)
+    val guide = GuideController()
 
     private val _serverError = MutableStateFlow<String?>(null)
     val serverError: StateFlow<String?> = _serverError

@@ -26,7 +26,11 @@ val SeriesColors = listOf(
 
 /** Frekvenskurvor 20–300 Hz på logaritmisk axel. */
 @Composable
-fun SweepChart(curves: List<DoubleArray>, modifier: Modifier = Modifier) {
+fun SweepChart(
+    curves: List<DoubleArray>,
+    modifier: Modifier = Modifier,
+    bands: List<Pair<DoubleArray, DoubleArray>> = emptyList(),
+) {
     val freqs = SweepAnalyzer.FREQUENCIES
     val grid = Color(0xFF2C2C2A)
     val tick = Color(0xFF898781)
@@ -35,7 +39,7 @@ fun SweepChart(curves: List<DoubleArray>, modifier: Modifier = Modifier) {
         val bottom = size.height - 28f
         val top = 8f
         val right = size.width - 8f
-        val all = curves.flatMap { it.toList() }
+        val all = curves.flatMap { it.toList() } + bands.flatMap { it.first.toList() + it.second.toList() }
         val maxDb = if (all.isEmpty()) 0.0 else ceil((all.max() + 3) / 6) * 6
         val minDb = if (all.isEmpty()) -30.0 else maxOf(floor((all.min() - 3) / 6) * 6, maxDb - 48)
         val fMin = 20.0
@@ -59,6 +63,16 @@ fun SweepChart(curves: List<DoubleArray>, modifier: Modifier = Modifier) {
             drawLine(grid, Offset(x(f), top), Offset(x(f), bottom), 1f)
             paint.textAlign = Paint.Align.CENTER
             drawContext.canvas.nativeCanvas.drawText("${f.toInt()}", x(f), size.height - 4f, paint)
+        }
+        bands.forEachIndexed { idx, (lo, hi) ->
+            val path = Path()
+            for (i in freqs.indices) {
+                val px = x(freqs[i])
+                if (i == 0) path.moveTo(px, y(hi[i])) else path.lineTo(px, y(hi[i]))
+            }
+            for (i in freqs.indices.reversed()) path.lineTo(x(freqs[i]), y(lo[i]))
+            path.close()
+            drawPath(path, SeriesColors[idx % SeriesColors.size].copy(alpha = 0.18f))
         }
         curves.forEachIndexed { idx, c ->
             val path = Path()

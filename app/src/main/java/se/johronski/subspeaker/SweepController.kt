@@ -24,6 +24,12 @@ class SweepController(private val services: AppServices) {
 
     data class Curve(
         val label: String,
+        /** "free" för fria mätningar, annars guidens steg: "mic", "phase", "level", "genelec". */
+        val stage: String,
+        /** Inställningen som jämförs, t.ex. "Fas 90". Mätningar med samma grupp medelvärdesbildas. */
+        val group: String,
+        /** Mätplats 1–5, eller 0 för fria mätningar. */
+        val position: Int,
         val time: String,
         val db: DoubleArray,
         val delaySeconds: Double,
@@ -38,7 +44,12 @@ class SweepController(private val services: AppServices) {
         val meanDb: Double,
         val flatnessDb: Double,
         val minSnrDb: Double,
-    )
+        val lo: DoubleArray,
+        val hi: DoubleArray,
+        val perPosition: Map<Int, Double>,
+    ) {
+        fun option() = se.johronski.subspeaker.audio.Decision.Option(label, flatnessDb, perPosition)
+    }
 
     data class State(
         val busy: Boolean = false,
@@ -46,14 +57,26 @@ class SweepController(private val services: AppServices) {
         val curves: List<Curve> = emptyList(),
         val error: String? = null,
     ) {
-        val groups: List<Group>
-            get() = curves.groupBy { it.label.trim().lowercase(Locale.ROOT) }.values.map { list ->
-                val avg = SweepAnalyzer.powerAverage(list.map { it.db })
-                val (mean, sd) = SweepAnalyzer.stats(avg)
-                Group(list.first().label.trim(), list.size, avg, mean, sd, list.minOf { it.snrDb })
-            }
+        val groups: List<Group> get() = groupsFor("free")
 
-        /** Jämnaste gruppen mellan 40 och 150 Hz, om det finns minst två att jämföra. */
+        fun groupsFor(stage: String): List<Group> =
+            curves.filter { it.stage == stage }
+                .groupBy { it.group.trim().lowercase(Locale.ROOT) }.values.map { list ->
+                    val avg = SweepAnalyzer.powerAverage(list.map { it.db })
+                    val (mean, _) = SweepAnalyzer.stats(avg)
+                    val n = avg.size
+                    val lo = DoubleArray(n) { i -> list.minOf { it.db[i] } }
+                    val hi = DoubleArray(n) { i -> list.maxOf { it.db[i] } }
+                    val perPos = list.groupBy { it.position }.mapValues { (_, c) ->
+                        SweepAnalyzer.deviation(SweepAnalyzer.powerAverage(c.map { it.db }))
+                    }
+                    Group(
+                        list.first().group.trim(), list.size, avg, mean, SweepAnalyzer.deviation(avg),
+                        list.minOf { it.snrDb }, lo, hi, perPos,
+                    )
+                }
+
+        /** Jämnaste gruppen bland fria mätningar, om det finns minst två att jämföra. */
         val best: Group?
             get() = groups.takeIf { it.size >= 2 }?.minByOrNull { it.flatnessDb }
     }
@@ -71,6 +94,9 @@ class SweepController(private val services: AppServices) {
         micDevice: AudioDeviceInfo?,
         outDevice: AudioDeviceInfo?,
         method: LocalPlayer.Method,
+        stage: String = "free",
+        group: String = label,
+        position: Int = 0,
     ) {
         if (_state.value.busy) return
         val spec = SweepAnalyzer.SWEEP
@@ -114,8 +140,12 @@ class SweepController(private val services: AppServices) {
                 val rec = recorder.stop()
                 _state.value = _state.value.copy(status = "Räknar …")
                 val r = SweepAnalyzer.analyze(rec)
+                val name = label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
                 val curve = Curve(
-                    label = label.ifBlank { "Mätning ${_state.value.curves.size + 1}" },
+                    label = name,
+                    stage = stage,
+                    group = group.ifBlank { name },
+                    position = position,
                     time = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date()),
                     db = r.db,
                     delaySeconds = r.delaySeconds,
@@ -140,11 +170,17 @@ class SweepController(private val services: AppServices) {
         }
     }
 
-    fun removeLast() {
-        _state.value = _state.value.copy(curves = _state.value.curves.dropLast(1))
+    fun removeLast(stage: String = "free") {
+        val c = _state.value.curves
+        val i = c.indexOfLast { it.stage == stage }
+        if (i >= 0) _state.value = _state.value.copy(curves = c.filterIndexed { idx, _ -> idx != i })
     }
 
-    fun clear() {
+    fun clear(stage: String = "free") {
+        _state.value = _state.value.copy(curves = _state.value.curves.filter { it.stage != stage }, error = null, status = "")
+    }
+
+    fun clearAll() {
         _state.value = State()
     }
 }

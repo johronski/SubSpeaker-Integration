@@ -116,6 +116,8 @@ fun DiagnosticsScreen(services: AppServices) {
     var method by remember { mutableStateOf(LocalPlayer.Method.DIRECT) }
     val sweep by services.sweep.state.collectAsState()
     var sweepLabel by remember { mutableStateOf("fas 0") }
+    val guide by services.guide.state.collectAsState()
+    var tab by remember { mutableStateOf(0) }
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
@@ -160,10 +162,60 @@ fun DiagnosticsScreen(services: AppServices) {
     ) {
         Text("SubSpeaker", fontSize = 26.sp, fontWeight = FontWeight.Medium)
         Text(
-            "Diagnos – testar Chromecast, mikrofon och subbens mute innan resten av appen byggs.",
+            "Guiden tar dig genom inställningen steg för steg. Under Verktyg väljer du uppspelning och mikrofon.",
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = tab == 0, onClick = { tab = 0 }, label = { Text("Guide", fontSize = 16.sp) })
+            FilterChip(selected = tab == 1, onClick = { tab = 1 }, label = { Text("Verktyg", fontSize = 16.sp) })
+        }
 
+        val micName = (devices.firstOrNull { it.id == selectedDeviceId }?.let { MicMeter.describe(it) } ?: "systemets mikrofon") +
+            " (${source.label})"
+        val playText = if (output == Output.CAST) {
+            "Chromecast" + (if (cast.connected) ": ${cast.deviceName}" else " (inte ansluten)")
+        } else {
+            "Telefonen (${method.label})"
+        }
+        val setupProblem = when {
+            !hasMicPermission -> "Ge appen tillgång till mikrofonen under Verktyg."
+            output == Output.CAST && !cast.connected -> "Anslut till din Chromecast under Verktyg."
+            else -> null
+        }
+        if (tab == 0) {
+            GuideContent(
+                guide = guide,
+                sweep = sweep,
+                setupText = "Uppspelning: $playText · Mikrofon: $micName",
+                setupProblem = setupProblem,
+                micName = micName,
+                canMeasure = setupProblem == null,
+                onStep = { services.guide.go(it) },
+                onPositions = { services.guide.setPositions(it) },
+                onToggleCheck = { services.guide.toggleCheck(it) },
+                measure = { label, stage, group, pos ->
+                    services.sweep.measure(
+                        label = label,
+                        useCast = output == Output.CAST,
+                        source = source,
+                        micDevice = devices.firstOrNull { it.id == selectedDeviceId },
+                        outDevice = outputs.firstOrNull { it.id == selectedOutputId },
+                        method = method,
+                        stage = stage,
+                        group = group,
+                        position = pos,
+                    )
+                },
+                removeLast = { services.sweep.removeLast(it) },
+                clearStage = { services.sweep.clear(it) },
+                resetAll = {
+                    listOf("mic", "phase", "level", "genelec").forEach { services.sweep.clear(it) }
+                    services.guide.reset()
+                },
+            )
+        }
+
+        if (tab == 1) {
         // ---------- 1. Chromecast ----------
         Section("1. Uppspelning") {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -539,7 +591,7 @@ fun DiagnosticsScreen(services: AppServices) {
                     "\nTELEFONUPPSPELNING\nVald källa: ${output.label}\nUtgång: ${local.routedDevice ?: "–"}\n" +
                     "Metod: ${local.method?.label ?: method.label}\nAppens nivå: ${(localGain * 100).toInt()} %\n" +
                     "Status: ${local.debug}\nFel: ${local.error ?: "–"}\n" +
-                    sweepReport(sweep)
+                    sweepReport(sweep) + guideReport(sweep)
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "SubSpeaker diagnosrapport")
@@ -549,6 +601,7 @@ fun DiagnosticsScreen(services: AppServices) {
             }) { Text("Dela rapport") }
             Text("Logg", fontWeight = FontWeight.Medium)
             cast.log.takeLast(12).forEach { Muted(it) }
+        }
         }
         Spacer(Modifier.height(32.dp))
     }
@@ -568,7 +621,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Muted(text: String) {
+internal fun Muted(text: String) {
     Text(text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
 }
 
@@ -702,4 +755,32 @@ private fun sweepReport(sweep: se.johronski.subspeaker.SweepController.State): S
         )
     }
     sweep.best?.let { appendLine("  Jämnast 40–150 Hz: ${it.label}") }
+}
+
+private fun guideReport(sweep: se.johronski.subspeaker.SweepController.State): String = buildString {
+    appendLine()
+    appendLine("GUIDE")
+    val f = se.johronski.subspeaker.audio.SweepAnalyzer.FREQUENCIES
+    val idx = listOf(20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0, 250.0)
+        .map { t -> f.indices.minByOrNull { kotlin.math.abs(f[it] - t) }!! }
+    for (stage in listOf("mic", "phase", "level", "genelec")) {
+        val groups = sweep.groupsFor(stage)
+        if (groups.isEmpty()) continue
+        appendLine("  [$stage]")
+        groups.forEach { g ->
+            appendLine(
+                String.format(Locale.ROOT, "  %s (n=%d, avvikelse ±%.1f, nivå %.1f, per plats %s): ",
+                    g.label, g.count, g.flatnessDb, g.meanDb,
+                    g.perPosition.entries.sortedBy { it.key }.joinToString(",") { String.format(Locale.ROOT, "%d:%.1f", it.key, it.value) },
+                ) + idx.joinToString(" ") { String.format(Locale.ROOT, "%.1f", g.db[it]) },
+            )
+        }
+    }
+    se.johronski.subspeaker.Guide.phaseVerdict(sweep)?.let {
+        appendLine(String.format(Locale.ROOT, "  Fas: %s, %s (marginal %.1f dB)", it.best.key, it.confidence.text, it.marginDb))
+    }
+    se.johronski.subspeaker.Guide.bestLevel(sweep)?.let { appendLine("  Nivå: $it steg från utgångsläget") }
+    se.johronski.subspeaker.Guide.genelecVerdict(sweep)?.let {
+        appendLine(String.format(Locale.ROOT, "  Genelec: %s, %s", it.best.key, it.confidence.text))
+    }
 }

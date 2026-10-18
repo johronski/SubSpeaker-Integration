@@ -133,6 +133,37 @@ object SweepAnalyzer {
         }
     }
 
+    /**
+     * Avvikelse (dB, viktat RMS) från en rak trendlinje över fLow–fHigh på logaritmisk frekvensaxel.
+     * Området runt delningen (60–130 Hz) väger dubbelt. En jämn lutning straffas alltså inte,
+     * men toppar, dalar och trappsteg mellan sub och högtalare gör det.
+     */
+    fun deviation(db: DoubleArray, fLow: Double = 30.0, fHigh: Double = 200.0): Double {
+        var sw = 0.0
+        var sx = 0.0
+        var sy = 0.0
+        var sxx = 0.0
+        var sxy = 0.0
+        val idx = FREQUENCIES.indices.filter { FREQUENCIES[it] in fLow..fHigh }
+        fun w(f: Double) = if (f in 60.0..130.0) 2.0 else 1.0
+        for (i in idx) {
+            val f = FREQUENCIES[i]
+            val x = ln(f) / ln(2.0)
+            val wi = w(f)
+            sw += wi; sx += wi * x; sy += wi * db[i]; sxx += wi * x * x; sxy += wi * x * db[i]
+        }
+        val den = sw * sxx - sx * sx
+        val b = if (den != 0.0) (sw * sxy - sx * sy) / den else 0.0
+        val a = (sy - b * sx) / sw
+        var acc = 0.0
+        for (i in idx) {
+            val f = FREQUENCIES[i]
+            val r = db[i] - (a + b * ln(f) / ln(2.0))
+            acc += w(f) * r * r
+        }
+        return sqrt(acc / sw)
+    }
+
     /** Medelnivå och standardavvikelse (dB) i ett frekvensområde. */
     fun stats(db: DoubleArray, fLow: Double = 40.0, fHigh: Double = 150.0): Pair<Double, Double> {
         val vals = FREQUENCIES.indices.filter { FREQUENCIES[it] in fLow..fHigh }.map { db[it] }
