@@ -18,6 +18,9 @@ sealed class SignalSpec {
 
     val durationMs: Long get() = (seconds * 1000).toLong()
 
+    /** Frekvensen som spelas efter ms millisekunder, eller null i en paus eller efter slutet. */
+    open fun frequencyAt(ms: Long): Double? = null
+
     data class Tone(
         val freq: Double,
         val warble: Boolean,
@@ -32,6 +35,8 @@ sealed class SignalSpec {
 
         override fun render(): FloatArray =
             if (warble) SignalGenerator.warble(freq, seconds, dbfs) else SignalGenerator.sine(freq, seconds, dbfs)
+
+        override fun frequencyAt(ms: Long): Double? = if (ms in 0..durationMs) freq else null
     }
 
     data class Sweep(
@@ -44,6 +49,9 @@ sealed class SignalSpec {
         override val measureFrequency: Double? get() = null
         override val path: String get() = "sweep/${fmt(f1)}/${fmt(f2)}/${fmt(seconds)}/${fmt(dbfs)}.wav"
         override fun render(): FloatArray = SignalGenerator.logSweep(f1, f2, seconds, dbfs)
+
+        override fun frequencyAt(ms: Long): Double? =
+            if (ms in 0..durationMs) SignalGenerator.sweepFrequencyAt(f1, f2, seconds, ms / 1000.0) else null
     }
 
     data class Steps(
@@ -57,6 +65,13 @@ sealed class SignalSpec {
         override val path: String get() = "steps/${if (warble) "warble" else "sine"}/${fmt(dbfs)}.wav"
         override fun render(): FloatArray =
             SignalGenerator.stepped(SignalGenerator.STEP_FREQUENCIES, 4.0, 1.0, dbfs, warble)
+
+        override fun frequencyAt(ms: Long): Double? {
+            if (ms < 0) return null
+            val idx = (ms / 5000).toInt()
+            if (idx >= SignalGenerator.STEP_FREQUENCIES.size || ms % 5000 >= 4000) return null
+            return SignalGenerator.STEP_FREQUENCIES[idx]
+        }
     }
 
     companion object {

@@ -36,6 +36,8 @@ class LocalPlayer(private val context: Context) {
         val title: String? = null,
         val method: Method? = null,
         val positionMs: Long = 0,
+        /** Tidpunkt (SystemClock.elapsedRealtime) då positionMs senast uppdaterades. */
+        val positionAt: Long = 0,
         val durationMs: Long = 0,
         val routedDevice: String? = null,
         val debug: String = "",
@@ -187,6 +189,7 @@ class LocalPlayer(private val context: Context) {
         }
         _state.value = _state.value.copy(
             positionMs = head * 1000 / sr,
+            positionAt = android.os.SystemClock.elapsedRealtime(),
             routedDevice = t.routedDevice?.let { describeOutput(it) } ?: "okänd",
             debug = "AudioTrack $ps · skrivna ramar $written · spelade $head · ${mediaVolumeText()}",
         )
@@ -243,6 +246,7 @@ class LocalPlayer(private val context: Context) {
         try {
             _state.value = _state.value.copy(
                 positionMs = p.currentPosition,
+                positionAt = android.os.SystemClock.elapsedRealtime(),
                 debug = "ExoPlayer ${if (p.isPlaying) "spelar" else "spelar inte"} · ${mediaVolumeText()}",
             )
         } catch (_: Exception) {

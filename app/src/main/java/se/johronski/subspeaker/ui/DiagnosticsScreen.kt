@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioDeviceInfo
 import android.os.Build
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -45,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.johronski.subspeaker.AppServices
@@ -118,6 +121,15 @@ fun DiagnosticsScreen(services: AppServices) {
     var sweepLabel by remember { mutableStateOf("fas 0") }
     val guide by services.guide.state.collectAsState()
     var tab by remember { mutableStateOf(0) }
+    var playingSpec by remember { mutableStateOf<SignalSpec?>(null) }
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    val playingNow = if (output == Output.PHONE) local.playing else cast.playerState == "Spelar"
+    LaunchedEffect(playingNow) {
+        while (playingNow) {
+            now = SystemClock.elapsedRealtime()
+            delay(100)
+        }
+    }
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
@@ -323,8 +335,10 @@ fun DiagnosticsScreen(services: AppServices) {
                             services.local.stop()
                             val url = services.signalUrl(selected.path)
                             if (url != null) services.cast.play(url, selected.label, selected.durationMs)
+                            playingSpec = selected
                         } else {
                             if (cast.connected) services.cast.stop()
+                            playingSpec = selected
                             services.local.play(
                                 selected,
                                 outputs.firstOrNull { it.id == selectedOutputId },
@@ -360,6 +374,21 @@ fun DiagnosticsScreen(services: AppServices) {
                         (cast.latencyMs?.let { " · startade efter ${it} ms" } ?: ""),
                 )
                 cast.lastError?.let { Text(it, color = Bad) }
+            }
+
+            val spec = playingSpec
+            if (playingNow && spec != null) {
+                val basePos = if (output == Output.PHONE) local.positionMs else cast.positionMs
+                val baseAt = if (output == Output.PHONE) local.positionAt else cast.positionAt
+                val est = basePos + (now - baseAt).coerceIn(0L, 2000L)
+                val f = spec.frequencyAt(est)
+                Text(
+                    if (f != null) String.format(Locale.ROOT, "%.0f Hz", f) else "paus",
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Accent,
+                )
+                if (output == Output.CAST) Muted("Frekvensen kan ligga upp till en halv sekund fel via Chromecast.")
             }
 
             Spacer(Modifier.height(4.dp))

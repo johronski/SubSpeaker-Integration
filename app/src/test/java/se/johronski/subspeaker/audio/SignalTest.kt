@@ -79,4 +79,18 @@ class SignalTest {
         assertNull(SignalSpec.parse("tone/sine/5/30/-12.wav")) // för låg frekvens
         assertNull(SignalSpec.parse("../etc/passwd"))
     }
+
+    @Test
+    fun frequencyAtFollowsSignal() {
+        val sw = SignalSpec.Sweep(200.0, 20.0, 60.0)
+        assertEquals(200.0, sw.frequencyAt(0)!!, 0.01)
+        assertEquals(63.2, sw.frequencyAt(30_000)!!, 0.1)
+        assertEquals(20.0, sw.frequencyAt(60_000)!!, 0.01)
+        assertNull(sw.frequencyAt(61_000))
+        val st = SignalSpec.Steps(warble = true)
+        assertEquals(200.0, st.frequencyAt(1000)!!, 0.0)
+        assertNull(st.frequencyAt(4500))
+        assertEquals(160.0, st.frequencyAt(5200)!!, 0.0)
+        assertEquals(90.0, SignalSpec.Tone(90.0, false).frequencyAt(10_000)!!, 0.0)
+    }
 }

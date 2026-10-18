@@ -34,6 +34,8 @@ class CastController(context: Context) {
         val playerState: String = "–",
         val title: String? = null,
         val positionMs: Long = 0,
+        /** Tidpunkt (SystemClock.elapsedRealtime) då positionMs senast uppdaterades. */
+        val positionAt: Long = 0,
         val durationMs: Long = 0,
         val latencyMs: Long? = null,
         val lastError: String? = null,
@@ -121,7 +123,10 @@ class CastController(context: Context) {
         }
         loadStartedAt = SystemClock.elapsedRealtime()
         waitingForPlay = true
-        _state.value = _state.value.copy(title = title, latencyMs = null, lastError = null, positionMs = 0, durationMs = durationMs)
+        _state.value = _state.value.copy(
+            title = title, latencyMs = null, lastError = null, positionMs = 0,
+            positionAt = SystemClock.elapsedRealtime(), durationMs = durationMs,
+        )
         log("Laddar: $title")
         io.execute {
             try {
@@ -190,7 +195,12 @@ class CastController(context: Context) {
                 waitingForPlay = false
                 log("Spelar efter $latency ms")
             }
-            _state.value = _state.value.copy(playerState = name, latencyMs = latency)
+            _state.value = if (state == "PLAYING" && latency != _state.value.latencyMs) {
+                // Uppspelningen har just börjat: positionen räknas från nu.
+                _state.value.copy(playerState = name, latencyMs = latency, positionMs = 0, positionAt = SystemClock.elapsedRealtime())
+            } else {
+                _state.value.copy(playerState = name, latencyMs = latency)
+            }
         }
 
         override fun onVolume(level: Double) {
@@ -198,7 +208,7 @@ class CastController(context: Context) {
         }
 
         override fun onPosition(seconds: Double) {
-            _state.value = _state.value.copy(positionMs = (seconds * 1000).toLong())
+            _state.value = _state.value.copy(positionMs = (seconds * 1000).toLong(), positionAt = SystemClock.elapsedRealtime())
         }
     }
 
