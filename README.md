@@ -22,7 +22,7 @@ Telefonen och Chromecasten måste vara på samma wifi. Gästnätverk och routrar
 
 ## Bygga
 
-GitHub Actions bygger och testar vid varje push. En tagg `vX.Y.Z` skapar en release med signerad APK.
+GitHub Actions bygger och testar vid varje push. När `version.txt` får ett nytt versionsnummer skapas automatiskt en release med APK.
 
 Signering kräver fyra hemligheter i repot: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Utan dem signeras APK:n med en tillfällig nyckel, och då måste appen avinstalleras före varje uppdatering.
 
