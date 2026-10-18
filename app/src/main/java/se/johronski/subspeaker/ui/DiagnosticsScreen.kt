@@ -67,6 +67,7 @@ import kotlinx.coroutines.withContext
 import se.johronski.subspeaker.AppServices
 import se.johronski.subspeaker.audio.LocalPlayer
 import se.johronski.subspeaker.audio.MicMeter
+import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SignalSpec
 import java.net.HttpURLConnection
 import java.net.URL
@@ -98,6 +99,7 @@ private val presetSignals: List<SignalSpec> = listOf(
     SignalSpec.Tone(200.0, warble = false),
     SignalSpec.Sweep(200.0, 20.0),
     SignalSpec.Steps(warble = true),
+    SignalSpec.Tone(1000.0, warble = false),
 )
 
 @Composable
@@ -114,6 +116,7 @@ fun DiagnosticsScreen(services: AppServices) {
     var outputs by remember { mutableStateOf(services.local.outputDevices()) }
     var selectedOutputId by remember { mutableStateOf<Int?>(null) }
     var localGain by remember { mutableFloatStateOf(services.local.gain) }
+    var method by remember { mutableStateOf(LocalPlayer.Method.DIRECT) }
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
@@ -171,9 +174,16 @@ fun DiagnosticsScreen(services: AppServices) {
             }
             if (output == Output.PHONE) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Utgång", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    OutlinedButton(onClick = { outputs = services.local.outputDevices() }) { Text("Uppdatera") }
+                    Text("Telefonen", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { outputs = services.local.outputDevices() }) { Text("Uppdatera utgångar") }
                 }
+                Text("Metod", fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LocalPlayer.Method.entries.forEach { m ->
+                        FilterChip(selected = method == m, onClick = { method = m }, label = { Text(m.label) })
+                    }
+                }
+                Text("Utgång", fontWeight = FontWeight.Medium)
                 ChoiceRow("Systemets val", selectedOutputId == null) { selectedOutputId = null }
                 outputs.forEach { d ->
                     ChoiceRow(LocalPlayer.describeOutput(d), selectedOutputId == d.id) { selectedOutputId = d.id }
@@ -253,7 +263,12 @@ fun DiagnosticsScreen(services: AppServices) {
                             if (url != null) services.cast.play(url, selected.label, selected.durationMs)
                         } else {
                             if (cast.connected) services.cast.stop()
-                            services.local.play(selected, outputs.firstOrNull { it.id == selectedOutputId })
+                            services.local.play(
+                                selected,
+                                outputs.firstOrNull { it.id == selectedOutputId },
+                                method,
+                                "http://127.0.0.1:${SignalServer.PORT}/${selected.path}",
+                            )
                         }
                     },
                     enabled = output == Output.PHONE || cast.connected,
@@ -274,6 +289,7 @@ fun DiagnosticsScreen(services: AppServices) {
                         "${fmtTime(local.positionMs)} / ${fmtTime(local.durationMs)}",
                 )
                 local.routedDevice?.let { Muted("Spelas via: $it") }
+                if (local.debug.isNotEmpty()) Muted(local.debug)
                 local.error?.let { Text(it, color = Bad) }
             } else {
                 Text(
@@ -437,7 +453,8 @@ fun DiagnosticsScreen(services: AppServices) {
             Button(onClick = {
                 val report = buildReport(context, services, cast, mic, saved, serverTest) +
                     "\nTELEFONUPPSPELNING\nVald källa: ${output.label}\nUtgång: ${local.routedDevice ?: "–"}\n" +
-                    "Appens nivå: ${(localGain * 100).toInt()} %\nFel: ${local.error ?: "–"}\n"
+                    "Metod: ${local.method?.label ?: method.label}\nAppens nivå: ${(localGain * 100).toInt()} %\n" +
+                    "Status: ${local.debug}\nFel: ${local.error ?: "–"}\n"
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "SubSpeaker diagnosrapport")
