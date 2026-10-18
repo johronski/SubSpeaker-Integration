@@ -65,6 +65,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.johronski.subspeaker.AppServices
+import se.johronski.subspeaker.audio.LocalPlayer
 import se.johronski.subspeaker.audio.MicMeter
 import se.johronski.subspeaker.audio.SignalSpec
 import java.net.HttpURLConnection
@@ -86,6 +87,8 @@ data class SavedReading(
     val castVolume: Double?,
 )
 
+enum class Output(val label: String) { CAST("Chromecast"), PHONE("Telefonen") }
+
 private val presetSignals: List<SignalSpec> = listOf(
     SignalSpec.Tone(90.0, warble = false),
     SignalSpec.Tone(90.0, warble = true),
@@ -105,6 +108,12 @@ fun DiagnosticsScreen(services: AppServices) {
     val cast by services.cast.state.collectAsState()
     val mic by services.mic.state.collectAsState()
     val serverError by services.serverError.collectAsState()
+    val local by services.local.state.collectAsState()
+
+    var output by remember { mutableStateOf(Output.CAST) }
+    var outputs by remember { mutableStateOf(services.local.outputDevices()) }
+    var selectedOutputId by remember { mutableStateOf<Int?>(null) }
+    var localGain by remember { mutableFloatStateOf(services.local.gain) }
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
@@ -154,8 +163,27 @@ fun DiagnosticsScreen(services: AppServices) {
         )
 
         // ---------- 1. Chromecast ----------
-        Section("1. Chromecast") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Section("1. Uppspelning") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Output.entries.forEach { o ->
+                    FilterChip(selected = output == o, onClick = { output = o }, label = { Text(o.label) })
+                }
+            }
+            if (output == Output.PHONE) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Utgång", fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    OutlinedButton(onClick = { outputs = services.local.outputDevices() }) { Text("Uppdatera") }
+                }
+                ChoiceRow("Systemets val", selectedOutputId == null) { selectedOutputId = null }
+                outputs.forEach { d ->
+                    ChoiceRow(LocalPlayer.describeOutput(d), selectedOutputId == d.id) { selectedOutputId = d.id }
+                }
+                Muted(
+                    "Telefonens högtalare återger inte djupbas – använd en kabel från hörlursutgången " +
+                        "(t.ex. USB-C-adaptern) till subbens linjeingång. Bluetooth ger fördröjning och komprimering.",
+                )
+            }
+            if (output == Output.CAST) Row(verticalAlignment = Alignment.CenterVertically) {
                 if (cast.available) {
                     AndroidView(
                         factory = { ctx ->
@@ -175,15 +203,17 @@ fun DiagnosticsScreen(services: AppServices) {
                     },
                 )
             }
-            Muted("Telefonens adress: ${services.localIp() ?: "inget wifi hittat"} · port 8089")
-            serverError?.let { Text(it, color = Bad) }
-            OutlinedButton(onClick = {
-                serverTest = "Testar …"
-                scope.launch {
-                    serverTest = withContext(Dispatchers.IO) { testServer(services) }
-                }
-            }) { Text("Testa telefonens ljudserver") }
-            serverTest?.let { Muted(it) }
+            if (output == Output.CAST) {
+                Muted("Telefonens adress: ${services.localIp() ?: "inget wifi hittat"} · port 8089")
+                serverError?.let { Text(it, color = Bad) }
+                OutlinedButton(onClick = {
+                    serverTest = "Testar …"
+                    scope.launch {
+                        serverTest = withContext(Dispatchers.IO) { testServer(services) }
+                    }
+                }) { Text("Testa telefonens ljudserver") }
+                serverTest?.let { Muted(it) }
+            }
 
             Spacer(Modifier.height(4.dp))
             Text("Signal (−12 dBFS)", fontWeight = FontWeight.Medium)
@@ -217,33 +247,59 @@ fun DiagnosticsScreen(services: AppServices) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = {
-                        val url = services.signalUrl(selected.path)
-                        if (url != null) services.cast.play(url, selected.label, selected.durationMs)
+                        if (output == Output.CAST) {
+                            services.local.stop()
+                            val url = services.signalUrl(selected.path)
+                            if (url != null) services.cast.play(url, selected.label, selected.durationMs)
+                        } else {
+                            if (cast.connected) services.cast.stop()
+                            services.local.play(selected, outputs.firstOrNull { it.id == selectedOutputId })
+                        }
                     },
-                    enabled = cast.connected,
+                    enabled = output == Output.PHONE || cast.connected,
                     modifier = Modifier.height(56.dp),
                 ) { Text("Spela", fontSize = 18.sp) }
                 Button(
-                    onClick = { services.cast.stop() },
-                    enabled = cast.connected,
+                    onClick = {
+                        services.local.stop()
+                        if (cast.connected) services.cast.stop()
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Bad),
                     modifier = Modifier.height(56.dp),
                 ) { Text("Stopp", fontSize = 18.sp) }
             }
-            Text(
-                "Läge: ${cast.playerState} · ${fmtTime(cast.positionMs)} / ${fmtTime(cast.durationMs)}" +
-                    (cast.latencyMs?.let { " · startade efter ${it} ms" } ?: ""),
-            )
-            cast.lastError?.let { Text(it, color = Bad) }
+            if (output == Output.PHONE) {
+                Text(
+                    "Läge: ${if (local.playing) "Spelar" else "Stoppad"} · " +
+                        "${fmtTime(local.positionMs)} / ${fmtTime(local.durationMs)}",
+                )
+                local.routedDevice?.let { Muted("Spelas via: $it") }
+                local.error?.let { Text(it, color = Bad) }
+            } else {
+                Text(
+                    "Läge: ${cast.playerState} · ${fmtTime(cast.positionMs)} / ${fmtTime(cast.durationMs)}" +
+                        (cast.latencyMs?.let { " · startade efter ${it} ms" } ?: ""),
+                )
+                cast.lastError?.let { Text(it, color = Bad) }
+            }
 
             Spacer(Modifier.height(4.dp))
             val cap = if (allowHighVolume) 1f else 0.6f
-            Text(
+            if (output == Output.PHONE) {
+                Text("Appens nivå: ${(localGain * 100).toInt()} %", fontWeight = FontWeight.Medium)
+                Slider(
+                    value = localGain.coerceIn(0f, cap),
+                    onValueChange = { localGain = it; services.local.gain = it },
+                    valueRange = 0f..cap,
+                )
+                Muted("Telefonens egen mediavolym påverkar också nivån.")
+            }
+            if (output == Output.CAST) Text(
                 "Chromecast-volym (huvudvolym): " +
                     (cast.volume?.let { "${(it * 100).toInt()} %" } ?: "–"),
                 fontWeight = FontWeight.Medium,
             )
-            Slider(
+            if (output == Output.CAST) Slider(
                 value = sliderValue.coerceIn(0f, cap),
                 onValueChange = { dragging = true; sliderValue = it },
                 onValueChangeFinished = {
@@ -255,7 +311,7 @@ fun DiagnosticsScreen(services: AppServices) {
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = allowHighVolume, onCheckedChange = { allowHighVolume = it })
-                Text("Tillåt volym över 60 %")
+                Text("Tillåt nivå över 60 %")
             }
             Muted("Börja lågt. Djupbas på hög nivå kan skada högtalarna utan att låta särskilt starkt.")
         }
@@ -366,7 +422,7 @@ fun DiagnosticsScreen(services: AppServices) {
 
         // ---------- 3. Testplan ----------
         Section("3. Testplan") {
-            Step("A", "Spela 90 Hz ren ton via Chromecast på låg volym. Hörs den?")
+            Step("A", "Spela 90 Hz ren ton på låg volym, via Chromecast eller telefonen med kabel. Hörs den?")
             Step("B", "Starta mätning med inbyggd mikrofon. Är nivån stabil (grön)? Spara som \"inbyggd\".")
             Step("C", "Koppla in Velodyne-mikrofonen via splittern, tryck Uppdatera, välj den och mät. Spara. Gör samma med Yamaha-mikrofonen.")
             Step("D", "Prova de tre ljudkällorna med samma mikrofon. Notera vilken som ger stabilast nivå.")
@@ -379,7 +435,9 @@ fun DiagnosticsScreen(services: AppServices) {
         // ---------- 4. Rapport ----------
         Section("4. Rapport") {
             Button(onClick = {
-                val report = buildReport(context, services, cast, mic, saved, serverTest)
+                val report = buildReport(context, services, cast, mic, saved, serverTest) +
+                    "\nTELEFONUPPSPELNING\nVald källa: ${output.label}\nUtgång: ${local.routedDevice ?: "–"}\n" +
+                    "Appens nivå: ${(localGain * 100).toInt()} %\nFel: ${local.error ?: "–"}\n"
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
                     putExtra(Intent.EXTRA_SUBJECT, "SubSpeaker diagnosrapport")

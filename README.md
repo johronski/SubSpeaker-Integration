@@ -8,7 +8,7 @@ Byggd för Velodyne SPL-1200R + Genelec G Four med Chromecast Audio, men princip
 
 **v0.1 – diagnos.** Testar att grunderna fungerar på din utrustning innan själva integrationsflödet byggs:
 
-- Spelar testsignaler från telefonen via Chromecast (telefonen kör en liten ljudserver på wifi).
+- Spelar testsignaler via Chromecast (telefonen kör en liten ljudserver på wifi) eller direkt i telefonen, t.ex. via kabel från hörlursutgången.
 - Mäter nivå i ett tredjedelsoktavsband med valfri mikrofon och ljudkälla.
 - Sparar mätningar med etiketter och delar en diagnosrapport.
 
