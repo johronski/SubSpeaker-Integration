@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SubSpeaker" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">#FF2A78D6</item>
+        <item name="colorPrimaryDark">#FF121212</item>
+        <item name="colorAccent">#FF1BAF7A</item>
+        <item name="android:windowBackground">#FF121212</item>
+        <item name="android:statusBarColor">#FF121212</item>
+        <item name="android:navigationBarColor">#FF121212</item>
+    </style>
+</resources>
