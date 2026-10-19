@@ -164,6 +164,12 @@ object SweepAnalyzer {
         return sqrt(acc / sw)
     }
 
+    /** Största skillnad (dB) mellan upprepade kurvor i området 30–200 Hz. */
+    fun repeatSpread(curves: List<DoubleArray>): Double =
+        FREQUENCIES.indices.filter { FREQUENCIES[it] in 30.0..200.0 }.maxOf { i ->
+            curves.maxOf { it[i] } - curves.minOf { it[i] }
+        }
+
     /** Medelnivå och standardavvikelse (dB) i ett frekvensområde. */
     fun stats(db: DoubleArray, fLow: Double = 40.0, fHigh: Double = 150.0): Pair<Double, Double> {
         val vals = FREQUENCIES.indices.filter { FREQUENCIES[it] in fLow..fHigh }.map { db[it] }

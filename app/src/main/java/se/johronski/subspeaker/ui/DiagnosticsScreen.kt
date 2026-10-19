@@ -206,6 +206,8 @@ fun DiagnosticsScreen(services: AppServices) {
                 onPositions = { services.guide.setPositions(it) },
                 onToggleCheck = { services.guide.toggleCheck(it) },
                 onGenelecBass = { services.guide.setGenelecBass(it) },
+                onDelay = { services.sweep.setDelay(it) },
+                onRepeats = { services.sweep.setRepeats(it) },
                 measure = { label, stage, group, pos ->
                     services.sweep.measure(
                         label = label,
@@ -540,6 +542,10 @@ fun DiagnosticsScreen(services: AppServices) {
                     FilterChip(selected = sweepLabel == l, onClick = { sweepLabel = l }, label = { Text(l) })
                 }
             }
+            SweepSettings(
+                sweep.delaySeconds, sweep.repeats, !sweep.busy,
+                { services.sweep.setDelay(it) }, { services.sweep.setRepeats(it) },
+            )
             OutlinedTextField(
                 value = sweepLabel,
                 onValueChange = { sweepLabel = it },
@@ -769,8 +775,9 @@ private fun sweepReport(sweep: se.johronski.subspeaker.SweepController.State): S
     sweep.curves.forEach {
         appendLine(
             String.format(
-                Locale.ROOT, "  %s | %s | fördröjning %.3f s | brusmarginal %.0f dB | %s",
-                it.time, it.label, it.delaySeconds, it.snrDb, it.device,
+                Locale.ROOT, "  %s | %s | fördröjning %.3f s | brusmarginal %.0f dB | svepskillnad %s | %s",
+                it.time, it.label, it.delaySeconds, it.snrDb,
+                it.repeatSpreadDb?.let { d -> String.format(Locale.ROOT, "%.1f dB", d) } ?: "–", it.device,
             ),
         )
     }

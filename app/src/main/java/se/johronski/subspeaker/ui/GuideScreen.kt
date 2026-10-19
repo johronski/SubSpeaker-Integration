@@ -58,6 +58,8 @@ fun GuideContent(
     onPositions: (Int) -> Unit,
     onToggleCheck: (Int) -> Unit,
     onGenelecBass: (Int) -> Unit,
+    onDelay: (Int) -> Unit,
+    onRepeats: (Int) -> Unit,
     measure: (label: String, stage: String, group: String, position: Int) -> Unit,
     removeLast: (stage: String) -> Unit,
     clearStage: (stage: String) -> Unit,
@@ -75,6 +77,9 @@ fun GuideContent(
         }
         Muted(setupText)
         setupProblem?.let { Text(it, color = Warn) }
+        if (guide.step != Step.PREP && guide.step != Step.RESULT) {
+            SweepSettings(sweep.delaySeconds, sweep.repeats, !sweep.busy, onDelay, onRepeats)
+        }
 
         when (guide.step) {
             Step.PREP -> Card {

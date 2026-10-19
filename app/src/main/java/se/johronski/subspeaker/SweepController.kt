@@ -35,6 +35,8 @@ class SweepController(private val services: AppServices) {
         val delaySeconds: Double,
         val snrDb: Double,
         val device: String,
+        /** Största skillnad (dB, 30–200 Hz) mellan upprepade svep, eller null vid ett svep. */
+        val repeatSpreadDb: Double? = null,
     )
 
     data class Group(
@@ -56,6 +58,10 @@ class SweepController(private val services: AppServices) {
         val status: String = "",
         val curves: List<Curve> = emptyList(),
         val error: String? = null,
+        /** Väntetid innan svepet startar, så att man hinner gå ifrån mätplatsen. */
+        val delaySeconds: Int = 10,
+        /** Antal svep per mätning. Flera svep medelvärdesbildas och kontrolleras mot varandra. */
+        val repeats: Int = 1,
     ) {
         val groups: List<Group> get() = groupsFor("free")
 
@@ -100,46 +106,65 @@ class SweepController(private val services: AppServices) {
     ) {
         if (_state.value.busy) return
         val spec = SweepAnalyzer.SWEEP
+        val delaySeconds = _state.value.delaySeconds
+        val repeats = _state.value.repeats
         job = scope.launch {
-            val recorder = SweepRecorder()
+            var recorder: SweepRecorder? = null
             _state.value = _state.value.copy(busy = true, error = null, status = "Förbereder …")
             try {
                 withContext(Dispatchers.Main) {
                     services.mic.stop()
                     services.local.stop()
                 }
-                recorder.start(source, micDevice)
-                delay(500)
+                for (s in delaySeconds downTo 1) {
+                    _state.value = _state.value.copy(status = "Startar om $s s. Gå ifrån mätplatsen och var tyst.")
+                    delay(1000)
+                }
 
-                if (useCast) {
-                    val url = services.signalUrl(spec.path) ?: throw IllegalStateException("Telefonen har ingen wifi-adress")
-                    _state.value = _state.value.copy(status = "Startar svepet på Chromecasten …")
-                    withContext(Dispatchers.Main) { services.cast.play(url, "Mätsvep", spec.durationMs) }
-                    var waited = 0
-                    while (services.cast.state.value.latencyMs == null) {
-                        services.cast.state.value.lastError?.let { throw IllegalStateException(it) }
-                        if (waited > 20_000) throw IllegalStateException("Chromecasten började aldrig spela")
-                        delay(100)
-                        waited += 100
+                val results = mutableListOf<SweepAnalyzer.Result>()
+                var device = ""
+                for (r in 1..repeats) {
+                    val rec = SweepRecorder().also { recorder = it }
+                    rec.start(source, micDevice)
+                    delay(500)
+                    val prefix = if (repeats > 1) "Svep $r av $repeats: " else ""
+
+                    if (useCast) {
+                        val url = services.signalUrl(spec.path) ?: throw IllegalStateException("Telefonen har ingen wifi-adress")
+                        _state.value = _state.value.copy(status = "${prefix}Startar svepet på Chromecasten …")
+                        withContext(Dispatchers.Main) { services.cast.play(url, "Mätsvep", spec.durationMs) }
+                        var waited = 0
+                        while (services.cast.state.value.latencyMs == null) {
+                            services.cast.state.value.lastError?.let { throw IllegalStateException(it) }
+                            if (waited > 20_000) throw IllegalStateException("Chromecasten började aldrig spela")
+                            delay(100)
+                            waited += 100
+                        }
+                    } else {
+                        val url = "http://127.0.0.1:${SignalServer.PORT}/${spec.path}"
+                        withContext(Dispatchers.Main) { services.local.play(spec, outDevice, method, url) }
                     }
-                } else {
-                    val url = "http://127.0.0.1:${SignalServer.PORT}/${spec.path}"
-                    withContext(Dispatchers.Main) { services.local.play(spec, outDevice, method, url) }
+
+                    val total = spec.durationMs + 2500
+                    var t = 0L
+                    while (t < total) {
+                        val left = ((total - t) / 1000).coerceAtLeast(0)
+                        _state.value = _state.value.copy(status = "${prefix}Mäter … $left s kvar. Var tyst och stilla.")
+                        delay(250)
+                        t += 250
+                        rec.error?.let { throw IllegalStateException(it) }
+                    }
+                    val data = rec.stop()
+                    recorder = null
+                    device = rec.routedDevice ?: device
+                    _state.value = _state.value.copy(status = "${prefix}Räknar …")
+                    results += SweepAnalyzer.analyze(data)
+                    if (r < repeats) delay(1500)
                 }
 
-                val total = spec.durationMs + 2500
-                var t = 0L
-                while (t < total) {
-                    val left = ((total - t) / 1000).coerceAtLeast(0)
-                    _state.value = _state.value.copy(status = "Mäter … $left s kvar. Var tyst och stilla.")
-                    delay(250)
-                    t += 250
-                    recorder.error?.let { throw IllegalStateException(it) }
-                }
-
-                val rec = recorder.stop()
-                _state.value = _state.value.copy(status = "Räknar …")
-                val r = SweepAnalyzer.analyze(rec)
+                val db = SweepAnalyzer.powerAverage(results.map { it.db })
+                val spread = if (results.size > 1) SweepAnalyzer.repeatSpread(results.map { it.db }) else null
+                val snr = results.minOf { it.snrDb }
                 val name = label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
                 val curve = Curve(
                     label = name,
@@ -147,27 +172,43 @@ class SweepController(private val services: AppServices) {
                     group = group.ifBlank { name },
                     position = position,
                     time = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date()),
-                    db = r.db,
-                    delaySeconds = r.delaySeconds,
-                    snrDb = r.snrDb,
-                    device = recorder.routedDevice ?: "",
+                    db = db,
+                    delaySeconds = results.first().delaySeconds,
+                    snrDb = snr,
+                    device = device,
+                    repeatSpreadDb = spread,
                 )
                 val warn = when {
-                    r.snrDb < 15 -> "Svag signal mot bruset (${r.snrDb.toInt()} dB). Höj volymen eller minska störningar och mät om."
-                    r.snrDb < 25 -> "Godkänd men knapp marginal mot bruset (${r.snrDb.toInt()} dB)."
+                    snr < 15 -> "Svag signal mot bruset (${snr.toInt()} dB). Höj volymen eller minska störningar och mät om."
+                    spread != null && spread > 1.5 -> String.format(
+                        Locale.ROOT,
+                        "Svepen skiljde %.1f dB från varandra. Något störde troligen – mät om.", spread,
+                    )
+                    snr < 25 -> "Godkänd men knapp marginal mot bruset (${snr.toInt()} dB)."
                     else -> null
                 }
+                val spreadText = spread?.let { String.format(Locale.ROOT, " · svepen skiljde %.1f dB", it) } ?: ""
                 _state.value = _state.value.copy(
                     busy = false,
                     curves = _state.value.curves + curve,
-                    status = "Klar: ${curve.label} · brusmarginal ${r.snrDb.toInt()} dB",
+                    status = "Klar: ${curve.label} · brusmarginal ${snr.toInt()} dB$spreadText",
                     error = warn,
                 )
+                services.signalDone()
             } catch (e: Exception) {
-                recorder.stop()
+                recorder?.stop()
                 _state.value = _state.value.copy(busy = false, status = "", error = e.message ?: e.javaClass.simpleName)
+                services.signalDone()
             }
         }
+    }
+
+    fun setDelay(seconds: Int) {
+        _state.value = _state.value.copy(delaySeconds = seconds.coerceIn(0, 30))
+    }
+
+    fun setRepeats(n: Int) {
+        _state.value = _state.value.copy(repeats = n.coerceIn(1, 3))
     }
 
     fun removeLast(stage: String = "free") {
@@ -181,6 +222,6 @@ class SweepController(private val services: AppServices) {
     }
 
     fun clearAll() {
-        _state.value = State()
+        _state.value = State(delaySeconds = _state.value.delaySeconds, repeats = _state.value.repeats)
     }
 }

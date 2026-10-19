@@ -43,6 +43,15 @@ class AppServices(private val context: Context) {
         }.start()
     }
 
+    /** Kort vibration när en mätning är klar, så att man vet att man kan gå tillbaka. */
+    fun signalDone() {
+        try {
+            val v = context.getSystemService(android.os.Vibrator::class.java) ?: return
+            v.vibrate(android.os.VibrationEffect.createOneShot(400, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (_: Exception) {
+        }
+    }
+
     /** Telefonens IPv4-adress på det aktiva nätverket (wifi). */
     fun localIp(): String? {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
