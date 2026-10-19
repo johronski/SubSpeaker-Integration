@@ -205,6 +205,7 @@ fun DiagnosticsScreen(services: AppServices) {
                 onStep = { services.guide.go(it) },
                 onPositions = { services.guide.setPositions(it) },
                 onToggleCheck = { services.guide.toggleCheck(it) },
+                onGenelecBass = { services.guide.setGenelecBass(it) },
                 measure = { label, stage, group, pos ->
                     services.sweep.measure(
                         label = label,

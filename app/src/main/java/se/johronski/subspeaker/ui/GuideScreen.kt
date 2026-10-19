@@ -42,7 +42,6 @@ private val prepItems = listOf(
     "Velodyne: ställ lågpassfiltret (LPF) på ungefär 90 Hz. Det görs på subben, inte med fjärrkontrollen.",
     "Velodyne: välj den förinställning du vill använda och stäng av nattläget (NIGHT).",
     "Velodyne: kör rumskalibreringen (EQ) med Velodyne-mikrofonen på lyssningsplatsen, enligt manualen.",
-    "Genelec, båda: grupp B omkopplare 4 (Bass −2 dB) på 1, alla andra omkopplare på 0.",
     "Under Verktyg: välj uppspelning (Chromecast ansluten) och mikrofon, och ställ en låg till måttlig volym.",
     "Mikrofonen i öronhöjd på lyssningsplatsen. Ingen pratar under mätningarna.",
 )
@@ -58,6 +57,7 @@ fun GuideContent(
     onStep: (Step) -> Unit,
     onPositions: (Int) -> Unit,
     onToggleCheck: (Int) -> Unit,
+    onGenelecBass: (Int) -> Unit,
     measure: (label: String, stage: String, group: String, position: Int) -> Unit,
     removeLast: (stage: String) -> Unit,
     clearStage: (stage: String) -> Unit,
@@ -90,6 +90,17 @@ fun GuideContent(
                             Text(t)
                         }
                     }
+                    Text("Genelec, båda: vilket Bass-läge står de på nu?", fontWeight = FontWeight.Medium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Guide.GENELEC.forEach { g ->
+                            FilterChip(
+                                selected = guide.genelecBass == g,
+                                onClick = { onGenelecBass(g) },
+                                label = { Text(Guide.genelecGroup(g)) },
+                            )
+                        }
+                    }
+                    Muted("Övriga omkopplare (Low bass, Treble, Tabletop, Level) på 0.")
                     Button(onClick = { onStep(Step.MIC) }) { Text("Nästa: mikrofonkoll") }
                 }
             }
@@ -111,7 +122,7 @@ fun GuideContent(
                 if (groups.size >= 2) Text(micVerdict(groups[0], groups[1]), color = Good)
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = { removeLast("mic") }, enabled = !sweep.busy && groups.isNotEmpty()) { Text("Ta bort senaste") }
-                    Button(onClick = { onStep(Step.PHASE) }) { Text(if (groups.isEmpty()) "Hoppa över" else "Nästa: fas") }
+                    Button(onClick = { onStep(Step.GENELEC) }) { Text(if (groups.isEmpty()) "Hoppa över" else "Nästa: Genelec") }
                 }
             }
 
@@ -171,16 +182,18 @@ fun GuideContent(
                             }
                         }
                     },
-                    nextLabel = "Nästa: Genelec",
-                    onNext = { onStep(Step.GENELEC) },
+                    nextLabel = "Till resultat",
+                    onNext = { onStep(Step.RESULT) },
                 )
             }
 
             Step.GENELEC -> {
-                val tasks = Guide.genelecTasks(guide.positions)
+                val tasks = Guide.genelecTasks(guide.positions, guide.genelecBass)
                 TaskStage(
                     title = "Genelec (valfritt)",
-                    intro = "Jämför Genelecens basomkopplare −2 och −4 dB. Kräver en promenad till högtalarna halvvägs.",
+                    intro = "Jämför Genelecens basomkopplare −2 och −4 dB. Görs före fas och nivå, eftersom omkopplaren " +
+                        "ändrar Genelecens nivå runt delningen. Kräver en promenad till högtalarna halvvägs. " +
+                        "Hoppar du över steget behålls ${Guide.genelecGroup(guide.genelecBass)}.",
                     stage = "genelec",
                     tasks = tasks,
                     guide = guide,
@@ -193,16 +206,18 @@ fun GuideContent(
                     verdict = {
                         Guide.genelecVerdict(sweep)?.let { v ->
                             VerdictText(v)
-                            if (Guide.next(tasks, sweep.curves) == null && v.best.key.contains("2")) {
+                            val order = Guide.genelecOrder(guide.genelecBass)
+                            val bestG = order.firstOrNull { Guide.genelecGroup(it) == v.best.key }
+                            if (Guide.next(tasks, sweep.curves) == null && bestG != null && bestG != order.last()) {
                                 Text(
-                                    "Ställ tillbaka Genelecerna: grupp B omkopplare 4 på 1 och 3 på 0.",
+                                    "Ställ tillbaka båda Genelecerna: ${Guide.bassSwitchText(bestG)}.",
                                     fontWeight = FontWeight.Medium,
                                 )
                             }
                         }
                     },
-                    nextLabel = "Till resultat",
-                    onNext = { onStep(Step.RESULT) },
+                    nextLabel = "Nästa: fas",
+                    onNext = { onStep(Step.PHASE) },
                 )
             }
 
@@ -215,7 +230,10 @@ fun GuideContent(
                     "Subnivå",
                     lv?.let { if (it == 0) "utgångsläget" else Guide.levelGroup(it).removePrefix("Nivå ") + " steg från utgångsläget" } ?: "ej mätt",
                 )
-                ResultRow("Genelec bas", gv?.let { "${it.best.key} (${it.confidence.text})" } ?: "−2 dB (ej jämfört)")
+                ResultRow(
+                    "Genelec bas",
+                    gv?.let { "${it.best.key} (${it.confidence.text})" } ?: "${Guide.genelecGroup(guide.genelecBass)} (ej jämfört)",
+                )
                 ResultRow("Lågpass på subben", "≈ 90 Hz")
                 Spacer(Modifier.height(4.dp))
                 Text("Bekräfta med musik", fontWeight = FontWeight.Medium)

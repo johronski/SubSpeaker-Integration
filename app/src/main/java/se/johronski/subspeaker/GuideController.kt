@@ -31,6 +31,11 @@ object Guide {
     }
     fun genelecGroup(g: Int) = "Bass −${abs(g)} dB"
 
+    /** Omkopplarlägen i Genelecens grupp B för ett Bass-läge. */
+    fun bassSwitchText(g: Int) =
+        if (g == -2) "grupp B: omkopplare 4 (−2 dB) på 1 och omkopplare 3 (−4 dB) på 0"
+        else "grupp B: omkopplare 3 (−4 dB) på 1 och omkopplare 4 (−2 dB) på 0"
+
     private fun placeText(p: Int, positions: Int) =
         if (positions == 1) "Ställ mikrofonen i öronhöjd på lyssningsplatsen. "
         else "Ställ mikrofonen på plats $p (${place(p)}), i öronhöjd. "
@@ -67,13 +72,16 @@ object Guide {
         }
     }
 
-    fun genelecTasks(positions: Int): List<Task> = buildList {
-        GENELEC.forEachIndexed { si, g ->
+    /** Ordning: nuvarande läge först, sedan det andra, så att det bara krävs en promenad. */
+    fun genelecOrder(current: Int) = listOf(current, GENELEC.first { it != current })
+
+    fun genelecTasks(positions: Int, current: Int): List<Task> = buildList {
+        genelecOrder(current).forEachIndexed { si, g ->
             for (p in 1..positions) {
                 val sb = StringBuilder()
-                if (si == 0 && p == 1) sb.append("Genelec ska stå på Bass −2 dB (grupp B: omkopplare 4 på 1, 3 på 0). ")
+                if (si == 0 && p == 1) sb.append("Genelecerna står på ${genelecGroup(g)}. ")
                 if (si == 1 && p == 1) {
-                    sb.append("Gå till båda Genelecerna: ställ grupp B omkopplare 3 (−4 dB) på 1 och omkopplare 4 (−2 dB) på 0. ")
+                    sb.append("Gå till båda Genelecerna och ställ ${bassSwitchText(g)}. ")
                 }
                 sb.append(placeText(p, positions))
                 sb.append("Tryck sedan Mät.")
@@ -118,9 +126,9 @@ class GuideController {
     enum class Step(val title: String) {
         PREP("Förberedelse"),
         MIC("Mikrofon"),
+        GENELEC("Genelec"),
         PHASE("Fas"),
         LEVEL("Nivå"),
-        GENELEC("Genelec"),
         RESULT("Resultat"),
     }
 
@@ -128,6 +136,8 @@ class GuideController {
         val step: Step = Step.PREP,
         val positions: Int = 3,
         val checks: Set<Int> = emptySet(),
+        /** Genelecens nuvarande Bass-läge (dB). */
+        val genelecBass: Int = -4,
     )
 
     private val _state = MutableStateFlow(State())
@@ -139,6 +149,10 @@ class GuideController {
 
     fun setPositions(n: Int) {
         _state.value = _state.value.copy(positions = n.coerceIn(1, 5))
+    }
+
+    fun setGenelecBass(g: Int) {
+        _state.value = _state.value.copy(genelecBass = g)
     }
 
     fun toggleCheck(i: Int) {
