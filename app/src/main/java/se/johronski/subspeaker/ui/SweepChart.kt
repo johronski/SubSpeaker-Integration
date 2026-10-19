@@ -1,87 +1,183 @@
 package se.johronski.subspeaker.ui
 
 import android.graphics.Paint
+import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import se.johronski.subspeaker.audio.SignalSpec
 import se.johronski.subspeaker.audio.SweepAnalyzer
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.ln
+import kotlin.math.pow
 
-val SeriesColors = listOf(
-    Color(0xFF3987E5), Color(0xFFD95926), Color(0xFF199E70), Color(0xFFC98500),
-    Color(0xFFD55181), Color(0xFF9085E9), Color(0xFFE66767), Color(0xFF008300),
-)
+/** En kurva i diagrammet, med valfritt spridningsband (min–max mellan mätplatser). */
+class ChartCurve(val label: String, val db: DoubleArray, val band: Pair<DoubleArray, DoubleArray>? = null)
 
-/** Frekvenskurvor 20–300 Hz på logaritmisk axel. */
+private const val F_MIN = 20.0
+private const val F_MAX = 300.0
+
+/**
+ * Frekvenskurvor 20–300 Hz på logaritmisk axel.
+ *
+ * Kurvorna normaliseras gemensamt så att 0 dB är medelnivån runt 80–125 Hz; inbördes nivåskillnader behålls.
+ * [highlight] ritas tjock och övriga tunna. [markers] är markerade dippar, [cursor] tonen som spelas.
+ * Med [onTap] kan man trycka i diagrammet för att välja en frekvens.
+ */
 @Composable
 fun SweepChart(
-    curves: List<DoubleArray>,
+    curves: List<ChartCurve>,
     modifier: Modifier = Modifier,
-    bands: List<Pair<DoubleArray, DoubleArray>> = emptyList(),
+    highlight: Int? = null,
+    markers: List<Double> = emptyList(),
+    cursor: Double? = null,
+    onTap: ((Double) -> Unit)? = null,
 ) {
     val freqs = SweepAnalyzer.FREQUENCIES
-    val grid = Color(0xFF2C2C2A)
-    val tick = Color(0xFF898781)
-    Canvas(modifier = modifier.fillMaxWidth().height(260.dp)) {
-        val left = 44f
-        val bottom = size.height - 28f
-        val top = 8f
-        val right = size.width - 8f
-        val all = curves.flatMap { it.toList() } + bands.flatMap { it.first.toList() + it.second.toList() }
-        val maxDb = if (all.isEmpty()) 0.0 else ceil((all.max() + 3) / 6) * 6
-        val minDb = if (all.isEmpty()) -30.0 else maxOf(floor((all.min() - 3) / 6) * 6, maxDb - 48)
-        val fMin = 20.0
-        val fMax = 300.0
-        fun x(f: Double) = (left + (ln(f / fMin) / ln(fMax / fMin)) * (right - left)).toFloat()
+    val tapModifier = if (onTap != null) {
+        Modifier.pointerInput(onTap) {
+            detectTapGestures { pos ->
+                val left = 40.dp.toPx()
+                val right = size.width - 6.dp.toPx()
+                val t = ((pos.x - left) / (right - left)).coerceIn(0f, 1f)
+                onTap(F_MIN * (F_MAX / F_MIN).pow(t.toDouble()))
+            }
+        }
+    } else {
+        Modifier
+    }
+    Canvas(modifier = modifier.fillMaxWidth().height(250.dp).then(tapModifier)) {
+        val left = 40.dp.toPx()
+        val right = size.width - 6.dp.toPx()
+        val top = 14.dp.toPx()
+        val bottom = size.height - 22.dp.toPx()
+
+        // Gemensam normalisering.
+        val refIdx = freqs.indices.filter { freqs[it] in 80.0..125.0 }
+        val offset = curves.flatMap { c -> refIdx.map { c.db[it] } }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
+        fun n(v: Double) = v - offset
+        val all = curves.flatMap { c ->
+            c.db.map { n(it) } + (c.band?.let { b -> b.first.map { n(it) } + b.second.map { n(it) } } ?: emptyList())
+        }
+        val maxDb = if (all.isEmpty()) 12.0 else ceil((all.max() + 2) / 6) * 6
+        val minDb = if (all.isEmpty()) -24.0 else maxOf(floor((all.min() - 2) / 6) * 6, maxDb - 42)
+
+        fun x(f: Double) = (left + (ln(f / F_MIN) / ln(F_MAX / F_MIN)) * (right - left)).toFloat()
         fun y(db: Double) = (bottom - (db.coerceIn(minDb, maxDb) - minDb) / (maxDb - minDb) * (bottom - top)).toFloat()
 
-        val paint = Paint().apply {
-            color = tick.toArgb()
-            textSize = 26f
+        val tickPaint = Paint().apply {
+            color = InkMuted.toArgb()
+            textSize = 11.sp.toPx()
             isAntiAlias = true
         }
+        val canvas = drawContext.canvas.nativeCanvas
+
+        // Rutnät
         var d = minDb
-        while (d <= maxDb + 0.1) {
-            drawLine(grid, Offset(left, y(d)), Offset(right, y(d)), 1f)
-            paint.textAlign = Paint.Align.RIGHT
-            drawContext.canvas.nativeCanvas.drawText("${d.toInt()}", left - 6f, y(d) + 9f, paint)
+        while (d <= maxDb + 0.01) {
+            drawLine(if (d == 0.0) Line.copy(alpha = 1f) else Line.copy(alpha = 0.6f), Offset(left, y(d)), Offset(right, y(d)), 1.dp.toPx())
+            tickPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(if (d > 0) "+${d.toInt()}" else "${d.toInt()}", left - 6.dp.toPx(), y(d) + 4.dp.toPx(), tickPaint)
             d += 6.0
         }
+        tickPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("dB", 2.dp.toPx(), top - 2.dp.toPx(), tickPaint)
+        tickPaint.textAlign = Paint.Align.CENTER
         for (f in listOf(20.0, 30.0, 40.0, 50.0, 70.0, 100.0, 150.0, 200.0, 300.0)) {
-            drawLine(grid, Offset(x(f), top), Offset(x(f), bottom), 1f)
-            paint.textAlign = Paint.Align.CENTER
-            drawContext.canvas.nativeCanvas.drawText("${f.toInt()}", x(f), size.height - 4f, paint)
+            drawLine(Line.copy(alpha = 0.6f), Offset(x(f), top), Offset(x(f), bottom), 1.dp.toPx())
+            canvas.drawText("${f.toInt()}", x(f), size.height - 4.dp.toPx(), tickPaint)
         }
-        bands.forEachIndexed { idx, (lo, hi) ->
-            val path = Path()
-            for (i in freqs.indices) {
-                val px = x(freqs[i])
-                if (i == 0) path.moveTo(px, y(hi[i])) else path.lineTo(px, y(hi[i]))
-            }
-            for (i in freqs.indices.reversed()) path.lineTo(x(freqs[i]), y(lo[i]))
-            path.close()
-            drawPath(path, SeriesColors[idx % SeriesColors.size].copy(alpha = 0.18f))
+
+        // Markerade dippar
+        val dash = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))
+        markers.filter { it in F_MIN..F_MAX }.forEach { m ->
+            drawLine(Bad.copy(alpha = 0.7f), Offset(x(m), top), Offset(x(m), bottom), 1.5.dp.toPx(), pathEffect = dash)
+            tickPaint.color = Bad.toArgb()
+            canvas.drawText(SignalSpec.fmt(m), x(m), top - 2.dp.toPx(), tickPaint)
         }
+        tickPaint.color = InkMuted.toArgb()
+
+        // Spridningsband
         curves.forEachIndexed { idx, c ->
+            val (lo, hi) = c.band ?: return@forEachIndexed
+            if (highlight != null && idx != highlight) return@forEachIndexed
+            val path = Path()
+            for (i in freqs.indices) {
+                if (i == 0) path.moveTo(x(freqs[i]), y(n(hi[i]))) else path.lineTo(x(freqs[i]), y(n(hi[i])))
+            }
+            for (i in freqs.indices.reversed()) path.lineTo(x(freqs[i]), y(n(lo[i])))
+            path.close()
+            drawPath(path, SeriesColors[idx % SeriesColors.size].copy(alpha = 0.14f))
+        }
+
+        // Kurvor: markerad kurva sist så att den ligger överst.
+        val order = curves.indices.sortedBy { if (it == highlight) 1 else 0 }
+        for (idx in order) {
+            val c = curves[idx]
             val path = Path()
             for (i in freqs.indices) {
                 val px = x(freqs[i])
-                val py = y(c[i])
+                val py = y(n(c.db[i]))
                 if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
             }
-            drawPath(path, SeriesColors[idx % SeriesColors.size], style = Stroke(width = 5f, join = StrokeJoin.Round))
+            val color = SeriesColors[idx % SeriesColors.size]
+            val (w, a) = when {
+                highlight == null -> 2.5.dp.toPx() to 1f
+                idx == highlight -> 3.5.dp.toPx() to 1f
+                else -> 1.5.dp.toPx() to 0.4f
+            }
+            drawPath(path, color.copy(alpha = a), style = Stroke(width = w, join = StrokeJoin.Round, cap = StrokeCap.Round))
+        }
+
+        // Namn vid kurvornas högra ände, utan att de krockar.
+        if (curves.size in 2..6) {
+            val labelPaint = Paint().apply {
+                textSize = 12.sp.toPx()
+                isAntiAlias = true
+                textAlign = Paint.Align.RIGHT
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            val halo = Paint(labelPaint).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 4.dp.toPx()
+                color = CardColor.toArgb()
+            }
+            val iEnd = freqs.indexOfLast { it <= 260.0 }
+            val gap = 15.dp.toPx()
+            val placed = curves.indices.map { it to y(n(curves[it].db[iEnd])) - 6.dp.toPx() }.sortedBy { it.second }.toMutableList()
+            for (k in 1 until placed.size) {
+                if (placed[k].second - placed[k - 1].second < gap) placed[k] = placed[k].first to placed[k - 1].second + gap
+            }
+            placed.forEach { (idx, py) ->
+                val text = curves[idx].label.let { if (it.length > 16) it.take(15) + "…" else it }
+                val yy = py.coerceIn(top + gap, bottom)
+                canvas.drawText(text, right - 2.dp.toPx(), yy, halo)
+                labelPaint.color = SeriesColors[idx % SeriesColors.size].copy(alpha = if (highlight == null || highlight == idx) 1f else 0.6f).toArgb()
+                canvas.drawText(text, right - 2.dp.toPx(), yy, labelPaint)
+            }
+        }
+
+        // Tonen som spelas
+        cursor?.takeIf { it in F_MIN..F_MAX }?.let { f ->
+            drawLine(Accent, Offset(x(f), top), Offset(x(f), bottom), 2.dp.toPx())
+            tickPaint.color = Accent.toArgb()
+            tickPaint.typeface = Typeface.DEFAULT_BOLD
+            canvas.drawText("${SignalSpec.fmt(f)} Hz", x(f), top - 2.dp.toPx(), tickPaint)
         }
     }
 }

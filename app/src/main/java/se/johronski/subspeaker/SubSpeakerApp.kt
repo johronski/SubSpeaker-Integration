@@ -2,9 +2,12 @@ package se.johronski.subspeaker
 
 import android.app.Application
 import android.content.Context
+import android.media.AudioDeviceInfo
 import android.net.ConnectivityManager
 import fi.iki.elonen.NanoHTTPD
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import se.johronski.subspeaker.audio.LocalPlayer
 import se.johronski.subspeaker.audio.MicMeter
@@ -22,18 +25,50 @@ class SubSpeakerApp : Application() {
     }
 }
 
+/** En sparad avläsning från mikrofonmätaren. */
+data class SavedReading(
+    val time: String,
+    val label: String,
+    val signal: String,
+    val frequency: Double,
+    val bandDb: Double,
+    val broadDb: Double,
+    val spreadDb: Double,
+    val source: String,
+    val device: String,
+    val castVolume: Double?,
+)
+
+/** Ett kort meddelande längst ner, eventuellt med Ångra. */
+data class UiEvent(val message: String, val undoable: Boolean = false)
+
 class AppServices(private val context: Context) {
+    val store = Store(context)
+    val settings = SettingsStore(store)
     val server = SignalServer(SignalServer.PORT)
     val cast = CastController(context)
     val mic = MicMeter(context)
     val local = LocalPlayer(context)
-    val sweep = SweepController(this)
-    val guide = GuideController()
+    val sweep = SweepController(this, store)
+    val guide = GuideController(store)
+    val playback = PlaybackController(this, store)
 
     private val _serverError = MutableStateFlow<String?>(null)
     val serverError: StateFlow<String?> = _serverError
 
+    private val _readings = MutableStateFlow<List<SavedReading>>(emptyList())
+    val readings: StateFlow<List<SavedReading>> = _readings
+
+    private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 4)
+    val events: SharedFlow<UiEvent> = _events
+
+    private var undoCurves: List<SweepController.Curve>? = null
+    private var undoGuide: GuideController.State? = null
+
     init {
+        local.gain = settings.value.localGain
+        cast.preferredName = settings.value.castName
+        cast.onConnected = { name -> settings.update { it.copy(castName = name) } }
         Thread {
             try {
                 server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
@@ -41,6 +76,65 @@ class AppServices(private val context: Context) {
                 _serverError.value = "Servern startade inte: ${e.message}"
             }
         }.start()
+    }
+
+    fun notify(message: String) {
+        _events.tryEmit(UiEvent(message))
+    }
+
+    /** Kör en raderande åtgärd och erbjuder Ångra. */
+    fun destructive(message: String, action: () -> Unit) {
+        undoCurves = sweep.state.value.curves
+        undoGuide = guide.state.value
+        action()
+        _events.tryEmit(UiEvent(message, undoable = true))
+    }
+
+    fun undo() {
+        undoCurves?.let { sweep.restore(it) }
+        undoGuide?.let { guide.restore(it) }
+        undoCurves = null
+        undoGuide = null
+    }
+
+    fun addReading(r: SavedReading) {
+        _readings.value = _readings.value + r
+    }
+
+    fun clearReadings() {
+        _readings.value = emptyList()
+    }
+
+    // ---------- Val av enheter ----------
+
+    fun micDevice(): AudioDeviceInfo? =
+        settings.value.micKey?.let { k -> mic.inputDevices().firstOrNull { Store.deviceKey(it) == k } }
+
+    fun outputDevice(): AudioDeviceInfo? =
+        settings.value.outKey?.let { k -> local.outputDevices().firstOrNull { Store.deviceKey(it) == k } }
+
+    /** Ljudkällan som används: användarens val, annars obearbetat om telefonen stöder det. */
+    fun micSource(): MicMeter.Source =
+        settings.value.source
+            ?: if (mic.unprocessedSupported) MicMeter.Source.UNPROCESSED else MicMeter.Source.VOICE_RECOGNITION
+
+    fun setOutput(o: Output) {
+        if (o != settings.value.output) {
+            local.stop()
+            if (cast.state.value.connected) cast.stop()
+        }
+        settings.update { it.copy(output = o) }
+    }
+
+    fun setLocalGain(g: Float) {
+        local.gain = g
+        settings.update { it.copy(localGain = g) }
+    }
+
+    fun forgetCast() {
+        cast.preferredName = null
+        settings.update { it.copy(castName = null) }
+        cast.disconnect()
     }
 
     /** Kort vibration när en mätning är klar, så att man vet att man kan gå tillbaka. */

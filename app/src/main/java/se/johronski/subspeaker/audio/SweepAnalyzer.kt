@@ -33,6 +33,8 @@ object SweepAnalyzer {
         val db: DoubleArray,
         val delaySeconds: Double,
         val snrDb: Double,
+        /** Inspelningens högsta nivå (dBFS). Nära 0 betyder att mikrofonen överstyrs. */
+        val peakDbfs: Double = -100.0,
     )
 
     fun analyze(recording: FloatArray, sweep: SignalSpec.Sweep = SWEEP): Result {
@@ -121,7 +123,11 @@ object SweepAnalyzer {
         val segPow = seg.sumOf { it * it }
         val snr = 10.0 * log10(segPow / (noisePow * seg.size + 1e-30))
 
-        return Result(db, d.toDouble() / FS, snr)
+        var maxAbs = 0.0
+        for (v in recording) if (abs(v) > maxAbs) maxAbs = abs(v).toDouble()
+        val peakDb = 20.0 * log10(maxAbs + 1e-9)
+
+        return Result(db, d.toDouble() / FS, snr, peakDb)
     }
 
     /** Effektmedelvärde av flera kurvor (dB). */

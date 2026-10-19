@@ -199,6 +199,13 @@ class MicMeter(private val context: Context) {
         /** Ingångar som inte är mikrofoner: telefoni, intern ljudström, ekoreferens. */
         private val HIDDEN_INPUTS = setOf(AudioDeviceInfo.TYPE_TELEPHONY, 25, 28)
 
+        /** Kort namn för gränssnittet, t.ex. "Inbyggd mikrofon" eller "iMM-6C". */
+        fun shortName(d: AudioDeviceInfo): String {
+            if (d.type == AudioDeviceInfo.TYPE_BUILTIN_MIC) return "Inbyggd mikrofon"
+            val name = d.productName?.toString().orEmpty()
+            return name.ifBlank { describe(d).substringBefore(" –") }
+        }
+
         fun describe(d: AudioDeviceInfo): String {
             val type = when (d.type) {
                 AudioDeviceInfo.TYPE_BUILTIN_MIC -> "Inbyggd mikrofon"

@@ -53,13 +53,17 @@ object Decision {
         val others = balance.filterKeys { it != 0 }
         if (others.isEmpty()) return null
         val slope = balance.entries.sumOf { it.key * (it.value - b0) } / balance.keys.sumOf { (it * it).toDouble() }
-        val up = balance[2]?.let { it - b0 }
-        val down = balance[-2]?.let { b0 - it }
+        // Ändring per två steg uppåt respektive nedåt, så att de kan jämföras.
+        val ups = balance.filterKeys { it > 0 }.map { (k, v) -> (v - b0) / k * 2 }
+        val downs = balance.filterKeys { it < 0 }.map { (k, v) -> (b0 - v) / -k * 2 }
+        val up = ups.takeIf { it.isNotEmpty() }?.average()
+        val down = downs.takeIf { it.isNotEmpty() }?.average()
         var warning: String? = null
         if (up != null && down != null && abs(up - down) > 1.0) {
             warning = String.format(
                 Locale.ROOT,
-                "Volymstegen gav olika stor ändring (+%.1f / −%.1f dB). Kontrollera på subbens display att alla tryck gick fram.",
+                "Upp och ner gav olika stor ändring (+%.1f / −%.1f dB per två steg). " +
+                    "Kontrollera på subbens display att alla tryck gick fram, och mät om nivåsteget.",
                 up, down,
             )
         }

@@ -52,12 +52,28 @@ class CastController(context: Context) {
             val d = Device(name, host, port, group, status)
             val list = _state.value.devices.filterNot { it.key == d.key } + d
             _state.value = _state.value.copy(devices = list.sortedBy { it.name.lowercase(Locale.ROOT) })
+            // Anslut automatiskt till samma Chromecast som förra gången.
+            val st = _state.value
+            if (!autoTried && name == preferredName && !st.connected && !st.connecting) {
+                autoTried = true
+                main.post { connect(d) }
+            }
         }
 
         override fun onError(message: String) {
             log(message)
         }
     })
+
+    /** Namnet på Chromecasten som appen ansluter till automatiskt när den hittas. */
+    @Volatile
+    var preferredName: String? = null
+
+    /** Anropas med enhetens namn när en anslutning lyckats. */
+    var onConnected: ((String) -> Unit)? = null
+
+    @Volatile
+    private var autoTried = false
 
     @Volatile
     private var client: CastClient? = null
@@ -95,6 +111,8 @@ class CastController(context: Context) {
                     deviceModel = if (device.group) "högtalargrupp" else "Chromecast",
                 )
                 log("Ansluten till ${device.name}")
+                preferredName = device.name
+                main.post { onConnected?.invoke(device.name) }
             } catch (e: Exception) {
                 c.close()
                 client = null

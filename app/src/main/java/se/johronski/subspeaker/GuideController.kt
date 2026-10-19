@@ -2,6 +2,8 @@ package se.johronski.subspeaker
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 import se.johronski.subspeaker.audio.Decision
 import kotlin.math.abs
 
@@ -91,7 +93,7 @@ object Guide {
     }
 
     fun isDone(t: Task, curves: List<SweepController.Curve>) =
-        curves.any { it.stage == t.stage && it.group == t.group && it.position == t.position }
+        curves.any { it.stage == t.stage && it.task == t.group && it.position == t.position }
 
     fun next(tasks: List<Task>, curves: List<SweepController.Curve>): Task? = tasks.firstOrNull { !isDone(it, curves) }
 
@@ -129,9 +131,70 @@ object Guide {
         delta < 0 -> "Tryck VOLUME − ${-delta} gånger"
         else -> "Ändra inte volymen"
     }
+
+    /** Planerat volymsteg för en uppgift i nivåsteget, t.ex. "Nivå +2" → 2. */
+    fun plannedStep(group: String): Int? =
+        group.removePrefix("Nivå").trim().replace("−", "-").replace("+", "").toIntOrNull()
+
+    /** Subbens volymsteg efter den senaste nivåmätningen (där subben står nu). */
+    fun currentLevelStep(s: SweepController.State): Int? =
+        s.curves.lastOrNull { it.stage == "level" }?.let { it.levelStep ?: plannedStep(it.group) }
+
+    data class Progress(val done: Int, val total: Int) {
+        val complete: Boolean get() = total > 0 && done >= total
+    }
+
+    /** Hur långt varje steg i guiden har kommit, för stegknapparna. */
+    fun progress(step: GuideController.Step, g: GuideController.State, s: SweepController.State): Progress? = when (step) {
+        GuideController.Step.PREP -> Progress(g.checks.size, PREP_ITEMS)
+        GuideController.Step.MIC -> s.groupsFor("mic").size.let { if (it == 0) null else Progress(it, it) }
+        GuideController.Step.GENELEC -> genelecTasks(g.positions, g.genelecBass).let { Progress(doneCount(it, s.curves), it.size) }
+        GuideController.Step.PHASE -> phaseTasks(g.positions).let { Progress(doneCount(it, s.curves), it.size) }
+        GuideController.Step.LEVEL -> levelTasks(g.positions, null).let { Progress(doneCount(it, s.curves), it.size) }
+        GuideController.Step.RESULT -> null
+    }
+
+    const val PREP_ITEMS = 5
+
+    /** Något att göra på resultatsidan, som användaren bockar av. */
+    data class Action(val key: String, val text: String)
+
+    fun actions(g: GuideController.State, s: SweepController.State): List<Action> = buildList {
+        bestPhase(s)?.let { add(Action("phase", "Fas: tryck $it på fjärrkontrollen.")) }
+        levelAdvice(s, g.targetBalance)?.let { adv ->
+            val base = g.subBaseline
+            val now = currentLevelStep(s) ?: 0
+            val text = if (base != null) {
+                "Subvolym: ställ subben så att displayen visar ${base + adv.step} (${stepText(adv.step)})."
+            } else {
+                "Subvolym: ${pressText(adv.step - now).replaceFirstChar { it.uppercase() }} (${stepText(adv.step)})."
+            }
+            add(Action("level", text))
+        }
+        val gv = genelecVerdict(s)
+        val order = genelecOrder(g.genelecBass)
+        val bestG = gv?.let { v -> order.firstOrNull { genelecGroup(it) == v.best.key } }
+        when {
+            bestG == null -> add(Action("genelec", "Genelec: behåll ${genelecGroup(g.genelecBass)}, ingen ändring."))
+            gv != null && s.curves.any { it.stage == "genelec" } && bestG != order.last() ->
+                add(Action("genelec", "Genelec: ställ båda på ${genelecGroup(bestG)} – ${bassSwitchText(bestG)}."))
+            else -> add(Action("genelec", "Genelec: låt dem stå på ${genelecGroup(bestG)}."))
+        }
+        add(Action("lpf", "Lågpass på subben: låt stå på ungefär 90 Hz (förinställt i guiden, inte uppmätt)."))
+    }
+
+    /** Kurvan som bäst visar den valda inställningen, för att spara och jämföra senare. */
+    fun resultCurve(s: SweepController.State): DoubleArray? {
+        phaseVerdict(s)?.let { v -> s.groupsFor("phase").firstOrNull { it.label == v.best.key }?.let { return it.db } }
+        s.groupsFor("level").firstOrNull { plannedStep(it.label) == 0 }?.let { return it.db }
+        return s.groupsFor("phase").firstOrNull()?.db ?: s.groups.firstOrNull()?.db
+    }
 }
 
-class GuideController {
+/** Ett sparat slutresultat, för att kunna jämföra med senare inställningar. */
+data class SavedResult(val date: String, val lines: List<String>, val curve: DoubleArray?)
+
+class GuideController(private val store: Store) {
     enum class Step(val title: String) {
         PREP("Förberedelse"),
         MIC("Mikrofon"),
@@ -149,33 +212,96 @@ class GuideController {
         val genelecBass: Int = -4,
         /** Önskad basbalans (dB): sub 25–63 Hz mot Genelec 100–250 Hz. */
         val targetBalance: Double = 3.0,
+        /** Vad subbens display visade i utgångsläget, om användaren angav det. */
+        val subBaseline: Int? = null,
+        /** Avbockade åtgärder på resultatsidan. */
+        val done: Set<String> = emptySet(),
+        val history: List<SavedResult> = emptyList(),
     )
 
-    private val _state = MutableStateFlow(State())
+    private val _state = MutableStateFlow(load())
     val state: StateFlow<State> = _state
 
-    fun go(step: Step) {
-        _state.value = _state.value.copy(step = step)
+    private fun set(f: (State) -> State) {
+        _state.value = f(_state.value)
+        save()
     }
 
-    fun setPositions(n: Int) {
-        _state.value = _state.value.copy(positions = n.coerceIn(1, 5))
+    fun go(step: Step) = set { it.copy(step = step) }
+
+    fun setPositions(n: Int) = set { it.copy(positions = n.coerceIn(1, 5)) }
+
+    fun setTargetBalance(t: Double) = set { it.copy(targetBalance = t) }
+
+    fun setGenelecBass(g: Int) = set { it.copy(genelecBass = g) }
+
+    fun setSubBaseline(v: Int?) = set { it.copy(subBaseline = v) }
+
+    fun toggleCheck(i: Int) = set { it.copy(checks = if (i in it.checks) it.checks - i else it.checks + i) }
+
+    fun toggleDone(key: String) = set { it.copy(done = if (key in it.done) it.done - key else it.done + key) }
+
+    fun saveResult(r: SavedResult) = set { it.copy(history = (listOf(r) + it.history).take(20)) }
+
+    fun removeResult(r: SavedResult) = set { it.copy(history = it.history - r) }
+
+    /** Börjar om guiden men behåller sparade resultat. */
+    fun reset() = set { State(history = it.history, genelecBass = it.genelecBass) }
+
+    fun restore(s: State) = set { s }
+
+    private fun save() {
+        val s = _state.value
+        val hist = JSONArray()
+        s.history.forEach { r ->
+            hist.put(
+                JSONObject().put("date", r.date).put("lines", Store.strings(r.lines))
+                    .put("curve", r.curve?.let { Store.doubles(it) } ?: JSONObject.NULL),
+            )
+        }
+        store.put(
+            KEY,
+            JSONObject()
+                .put("step", s.step.name)
+                .put("positions", s.positions)
+                .put("checks", Store.ints(s.checks))
+                .put("genelecBass", s.genelecBass)
+                .put("target", s.targetBalance)
+                .put("baseline", s.subBaseline ?: JSONObject.NULL)
+                .put("done", Store.strings(s.done))
+                .put("history", hist)
+                .toString(),
+        )
     }
 
-    fun setTargetBalance(t: Double) {
-        _state.value = _state.value.copy(targetBalance = t)
+    private fun load(): State {
+        val raw = store.get(KEY) ?: return State()
+        return try {
+            val j = JSONObject(raw)
+            val hist = j.optJSONArray("history") ?: JSONArray()
+            State(
+                step = Step.entries.firstOrNull { it.name == j.optString("step") } ?: Step.PREP,
+                positions = j.optInt("positions", 3),
+                checks = Store.ints(j.optJSONArray("checks")).toSet(),
+                genelecBass = j.optInt("genelecBass", -4),
+                targetBalance = j.optDouble("target", 3.0),
+                subBaseline = if (j.isNull("baseline")) null else j.optInt("baseline"),
+                done = Store.strings(j.optJSONArray("done")).toSet(),
+                history = (0 until hist.length()).map { i ->
+                    val o = hist.getJSONObject(i)
+                    SavedResult(
+                        o.optString("date"),
+                        Store.strings(o.optJSONArray("lines")),
+                        if (o.isNull("curve")) null else Store.doubles(o.optJSONArray("curve")),
+                    )
+                },
+            )
+        } catch (e: Exception) {
+            State()
+        }
     }
 
-    fun setGenelecBass(g: Int) {
-        _state.value = _state.value.copy(genelecBass = g)
-    }
-
-    fun toggleCheck(i: Int) {
-        val c = _state.value.checks
-        _state.value = _state.value.copy(checks = if (i in c) c - i else c + i)
-    }
-
-    fun reset() {
-        _state.value = State()
+    private companion object {
+        const val KEY = "guide"
     }
 }
