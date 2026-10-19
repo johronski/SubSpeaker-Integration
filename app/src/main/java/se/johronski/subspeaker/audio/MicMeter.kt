@@ -61,7 +61,9 @@ class MicMeter(private val context: Context) {
         get() = context.getSystemService(AudioManager::class.java)
 
     fun inputDevices(): List<AudioDeviceInfo> =
-        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).filter { it.isSource }.toList()
+        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            .filter { it.isSource && it.type !in HIDDEN_INPUTS }
+            .toList()
 
     fun setFrequency(f: Double) {
         frequency = f.coerceIn(10.0, 2000.0)
@@ -194,6 +196,9 @@ class MicMeter(private val context: Context) {
     }
 
     companion object {
+        /** Ingångar som inte är mikrofoner: telefoni, intern ljudström, ekoreferens. */
+        private val HIDDEN_INPUTS = setOf(AudioDeviceInfo.TYPE_TELEPHONY, 25, 28)
+
         fun describe(d: AudioDeviceInfo): String {
             val type = when (d.type) {
                 AudioDeviceInfo.TYPE_BUILTIN_MIC -> "Inbyggd mikrofon"

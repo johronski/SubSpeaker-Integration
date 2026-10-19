@@ -164,6 +164,18 @@ object SweepAnalyzer {
         return sqrt(acc / sw)
     }
 
+    /**
+     * Basbalans (dB): effektmedel 25–63 Hz (subbens område) minus 100–250 Hz (Genelecens område).
+     * Positivt värde betyder att basen ligger över Genelecen.
+     */
+    fun balance(db: DoubleArray): Double {
+        fun pav(lo: Double, hi: Double): Double {
+            val v = FREQUENCIES.indices.filter { FREQUENCIES[it] in lo..hi }.map { 10.0.pow(db[it] / 10.0) }
+            return 10.0 * log10(v.average())
+        }
+        return pav(25.0, 63.0) - pav(100.0, 250.0)
+    }
+
     /** Största skillnad (dB) mellan upprepade kurvor i området 30–200 Hz. */
     fun repeatSpread(curves: List<DoubleArray>): Double =
         FREQUENCIES.indices.filter { FREQUENCIES[it] in 30.0..200.0 }.maxOf { i ->

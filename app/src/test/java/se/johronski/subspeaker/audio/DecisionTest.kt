@@ -30,10 +30,23 @@ class DecisionTest {
     }
 
     @Test
-    fun levelStep() {
-        assertEquals(0, Decision.bestLevelStep(mapOf(-2 to 2.0, 0 to 1.0, 2 to 2.0)))
-        assertEquals(2, Decision.bestLevelStep(mapOf(-2 to 3.0, 0 to 2.0, 2 to 1.0)))
-        assertEquals(1, Decision.bestLevelStep(mapOf(-2 to 3.0, 0 to 1.2, 2 to 1.0)))
-        assertEquals(0, Decision.bestLevelStep(mapOf(-2 to 1.1, 0 to 1.0, 2 to 1.2)))
+    fun levelAdviceUsesBalanceAndSlope() {
+        // Från rapporten: +1,8 dB i utgångsläget, 0,5 dB per steg (olika upp/ner).
+        val adv = Decision.levelAdvice(mapOf(-2 to 1.4, 0 to 1.8, 2 to 3.3), 3.0)!!
+        assertEquals(0.475, adv.dbPerStep, 0.01)
+        assertEquals(3, adv.step)
+        org.junit.Assert.assertNotNull(adv.warning)
+        val even = Decision.levelAdvice(mapOf(-2 to -2.0, 0 to 0.0, 2 to 2.0), 3.0)!!
+        assertEquals(3, even.step)
+        assertNull(even.warning)
+        val flat = Decision.levelAdvice(mapOf(-2 to 1.0, 0 to 1.0, 2 to 1.1), 3.0)!!
+        assertEquals(0, flat.step)
+        org.junit.Assert.assertNotNull(flat.warning)
+    }
+
+    @Test
+    fun balanceOfFlatCurveIsZero() {
+        val flat = DoubleArray(SweepAnalyzer.FREQUENCIES.size) { -30.0 }
+        assertEquals(0.0, SweepAnalyzer.balance(flat), 1e-9)
     }
 }

@@ -1,5 +1,7 @@
 package se.johronski.subspeaker.audio
 
+import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /** Väljer bästa inställning ur jämförande mätningar och anger hur säker skillnaden är. */
@@ -32,21 +34,39 @@ object Decision {
         return Verdict(a, b, margin, conf)
     }
 
+    data class LevelAdvice(
+        /** Rekommenderat antal volymsteg från utgångsläget. */
+        val step: Int,
+        /** Uppskattad ändring av basbalansen per volymsteg (dB). */
+        val dbPerStep: Double,
+        /** Basbalans i utgångsläget (dB). */
+        val balanceNow: Double,
+        val warning: String?,
+    )
+
     /**
-     * Bästa volymsteg utifrån avvikelsen vid stegen -2, 0 och +2.
-     * Anpassar en parabel och avrundar till helt steg inom ±3. Små skillnader ger 0.
+     * Rekommenderar subnivå utifrån basbalansen (sub mot Genelec) vid olika volymsteg.
+     * Ändringen per steg skattas ur mätningarna, och steget som når målbalansen väljs.
      */
-    fun bestLevelStep(m: Map<Int, Double>): Int? {
-        val mm = m[-2] ?: return null
-        val m0 = m[0] ?: return null
-        val mp = m[2] ?: return null
-        val all = listOf(mm, m0, mp)
-        if ((all.max() - all.min()) < 0.3) return 0
-        val a = (mp + mm - 2 * m0) / 8.0
-        val b = (mp - mm) / 4.0
-        if (a <= 0.01) {
-            return listOf(-2 to mm, 0 to m0, 2 to mp).minBy { it.second }.first
+    fun levelAdvice(balance: Map<Int, Double>, target: Double): LevelAdvice? {
+        val b0 = balance[0] ?: return null
+        val others = balance.filterKeys { it != 0 }
+        if (others.isEmpty()) return null
+        val slope = balance.entries.sumOf { it.key * (it.value - b0) } / balance.keys.sumOf { (it * it).toDouble() }
+        val up = balance[2]?.let { it - b0 }
+        val down = balance[-2]?.let { b0 - it }
+        var warning: String? = null
+        if (up != null && down != null && abs(up - down) > 1.0) {
+            warning = String.format(
+                Locale.ROOT,
+                "Volymstegen gav olika stor ändring (+%.1f / −%.1f dB). Kontrollera på subbens display att alla tryck gick fram.",
+                up, down,
+            )
         }
-        return (-b / (2 * a)).coerceIn(-3.0, 3.0).roundToInt()
+        if (slope < 0.2) {
+            return LevelAdvice(0, slope, b0, "Basnivån ändrades knappt med volymstegen. Kontrollera att trycken på fjärrkontrollen gick fram.")
+        }
+        val step = ((target - b0) / slope).roundToInt().coerceIn(-6, 6)
+        return LevelAdvice(step, slope, b0, warning)
     }
 }

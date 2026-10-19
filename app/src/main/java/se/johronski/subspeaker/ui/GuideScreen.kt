@@ -59,6 +59,7 @@ fun GuideContent(
     onToggleCheck: (Int) -> Unit,
     onGenelecBass: (Int) -> Unit,
     onDelay: (Int) -> Unit,
+    onTarget: (Double) -> Unit,
     onRepeats: (Int) -> Unit,
     measure: (label: String, stage: String, group: String, position: Int) -> Unit,
     removeLast: (stage: String) -> Unit,
@@ -163,7 +164,8 @@ fun GuideContent(
                 val tasks = Guide.levelTasks(guide.positions, phase)
                 TaskStage(
                     title = "Nivå",
-                    intro = "Subnivån mäts i utgångsläget, två steg upp och två steg ner. Appen räknar fram bästa nivå.",
+                    intro = "Subnivån mäts i utgångsläget, två steg upp och två steg ner. Appen jämför subbens område " +
+                        "(25–63 Hz) med Genelecens (100–250 Hz) och räknar fram hur många steg som når målet.",
                     stage = "level",
                     tasks = tasks,
                     guide = guide,
@@ -174,16 +176,37 @@ fun GuideContent(
                     removeLast = removeLast,
                     clearStage = clearStage,
                     verdict = {
-                        val best = Guide.bestLevel(sweep)
-                        if (best != null) {
+                        Text("Mål för basbalans", fontWeight = FontWeight.Medium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(0.0, 3.0, 6.0).forEach { t ->
+                                FilterChip(
+                                    selected = guide.targetBalance == t,
+                                    onClick = { onTarget(t) },
+                                    label = { Text(if (t == 0.0) "Rak 0 dB" else String.format(Locale.ROOT, "+%.0f dB", t)) },
+                                )
+                            }
+                        }
+                        Muted(
+                            "Rak = subben lika stark som Genelecen. +3 dB är en vanlig, lätt baslyft. " +
+                                "Telefonens mikrofon kan tappa lite i djupbas, så den verkliga baslyften blir något större än målet.",
+                        )
+                        val adv = Guide.levelAdvice(sweep, guide.targetBalance)
+                        if (adv != null) {
                             Text(
-                                "Bäst: ${if (best == 0) "utgångsläget" else Guide.levelGroup(best).removePrefix("Nivå ") + " steg"} " +
-                                    "jämfört med där du började.",
+                                String.format(
+                                    Locale.ROOT,
+                                    "Basbalans i utgångsläget: %+.1f dB. Ett volymsteg ≈ %.1f dB.",
+                                    adv.balanceNow, adv.dbPerStep,
+                                ),
+                            )
+                            Text(
+                                "Rekommendation: ${Guide.stepText(adv.step)}.",
                                 color = Good,
                                 fontWeight = FontWeight.Medium,
                             )
+                            adv.warning?.let { Text(it, color = Warn) }
                             if (Guide.next(tasks, sweep.curves) == null) {
-                                Text("${Guide.pressText(best - Guide.LEVELS.last())} nu.", fontWeight = FontWeight.Medium)
+                                Text("${Guide.pressText(adv.step - Guide.LEVELS.last())} nu.", fontWeight = FontWeight.Medium)
                             }
                         }
                     },
@@ -228,12 +251,12 @@ fun GuideContent(
 
             Step.RESULT -> StageCard("Resultat") {
                 val pv = Guide.phaseVerdict(sweep)
-                val lv = Guide.bestLevel(sweep)
+                val lv = Guide.levelAdvice(sweep, guide.targetBalance)
                 val gv = Guide.genelecVerdict(sweep)
                 ResultRow("Fas", pv?.let { "${Guide.bestPhase(sweep)} (${it.confidence.text})" } ?: "ej mätt")
                 ResultRow(
                     "Subnivå",
-                    lv?.let { if (it == 0) "utgångsläget" else Guide.levelGroup(it).removePrefix("Nivå ") + " steg från utgångsläget" } ?: "ej mätt",
+                    lv?.let { Guide.stepText(it.step) } ?: "ej mätt",
                 )
                 ResultRow(
                     "Genelec bas",

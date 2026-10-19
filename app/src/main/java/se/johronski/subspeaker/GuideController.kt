@@ -105,12 +105,21 @@ object Guide {
     fun bestPhase(s: SweepController.State): Int? =
         phaseVerdict(s)?.best?.key?.removePrefix("Fas ")?.trim()?.toIntOrNull()
 
-    fun levelMap(s: SweepController.State): Map<Int, Double> =
+    /** Basbalans (sub mot Genelec) per volymsteg. */
+    fun levelBalance(s: SweepController.State): Map<Int, Double> =
         s.groupsFor("level").mapNotNull { g ->
-            g.label.removePrefix("Nivå").trim().replace("−", "-").replace("+", "").toIntOrNull()?.let { it to g.flatnessDb }
+            g.label.removePrefix("Nivå").trim().replace("−", "-").replace("+", "").toIntOrNull()
+                ?.let { it to se.johronski.subspeaker.audio.SweepAnalyzer.balance(g.db) }
         }.toMap()
 
-    fun bestLevel(s: SweepController.State): Int? = Decision.bestLevelStep(levelMap(s))
+    fun levelAdvice(s: SweepController.State, target: Double): Decision.LevelAdvice? =
+        Decision.levelAdvice(levelBalance(s), target)
+
+    fun stepText(step: Int): String = when {
+        step == 0 -> "utgångsläget"
+        step > 0 -> "+$step steg från utgångsläget"
+        else -> "−${-step} steg från utgångsläget"
+    }
 
     fun genelecVerdict(s: SweepController.State): Decision.Verdict? =
         Decision.compare(s.groupsFor("genelec").map { it.option() })
@@ -138,6 +147,8 @@ class GuideController {
         val checks: Set<Int> = emptySet(),
         /** Genelecens nuvarande Bass-läge (dB). */
         val genelecBass: Int = -4,
+        /** Önskad basbalans (dB): sub 25–63 Hz mot Genelec 100–250 Hz. */
+        val targetBalance: Double = 3.0,
     )
 
     private val _state = MutableStateFlow(State())
@@ -149,6 +160,10 @@ class GuideController {
 
     fun setPositions(n: Int) {
         _state.value = _state.value.copy(positions = n.coerceIn(1, 5))
+    }
+
+    fun setTargetBalance(t: Double) {
+        _state.value = _state.value.copy(targetBalance = t)
     }
 
     fun setGenelecBass(g: Int) {
