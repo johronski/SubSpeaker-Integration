@@ -69,6 +69,7 @@ import se.johronski.subspeaker.audio.LocalPlayer
 import se.johronski.subspeaker.audio.MicMeter
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SignalSpec
+import se.johronski.subspeaker.audio.ToneGrid
 import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
@@ -89,6 +90,9 @@ data class SavedReading(
 )
 
 enum class Output(val label: String) { CAST("Chromecast"), PHONE("Telefonen") }
+
+/** Ton för dippsökning: 60 s så att man hinner lyssna och flytta sig. */
+private fun dipTone(f: Double, warble: Boolean) = SignalSpec.Tone(f, warble, seconds = 60.0)
 
 private val presetSignals: List<SignalSpec> = listOf(
     SignalSpec.Tone(90.0, warble = false),
@@ -133,6 +137,9 @@ fun DiagnosticsScreen(services: AppServices) {
 
     var selected by remember { mutableStateOf<SignalSpec>(presetSignals.first()) }
     var customFreq by remember { mutableStateOf("") }
+    var dipDiv by remember { mutableStateOf(12) }
+    var dipFreq by remember { mutableStateOf(ToneGrid.snap(120.0, 12)) }
+    var dipWarble by remember { mutableStateOf(false) }
     var allowHighVolume by remember { mutableStateOf(false) }
     var sliderValue by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
@@ -303,17 +310,97 @@ fun DiagnosticsScreen(services: AppServices) {
                 serverTest?.let { Muted(it) }
             }
 
+            val canPlay = output == Output.PHONE || cast.connected
+            fun play(s: SignalSpec) {
+                selected = s
+                if (!canPlay) return
+                if (output == Output.CAST) {
+                    services.local.stop()
+                    val url = services.signalUrl(s.path)
+                    if (url != null) services.cast.play(url, s.label, s.durationMs)
+                } else {
+                    if (cast.connected) services.cast.stop()
+                    services.local.play(
+                        s,
+                        outputs.firstOrNull { it.id == selectedOutputId },
+                        method,
+                        "http://127.0.0.1:${SignalServer.PORT}/${s.path}",
+                    )
+                }
+                playingSpec = s
+            }
+
             Spacer(Modifier.height(4.dp))
-            Text("Signal (−12 dBFS)", fontWeight = FontWeight.Medium)
+            Text("Signal (−12 dBFS) – spelas direkt när du trycker", fontWeight = FontWeight.Medium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 presetSignals.forEach { s ->
                     FilterChip(
                         selected = selected == s,
-                        onClick = { selected = s },
+                        onClick = { play(s) },
                         label = { Text(s.label) },
                     )
                 }
             }
+
+            // ---------- Dippsökning ----------
+            Spacer(Modifier.height(4.dp))
+            Text("Dippsökning", fontWeight = FontWeight.Medium)
+            Muted(
+                "Stega tonen upp och ner och lyssna (eller titta på mikrofonmätaren) var den blir svagast. " +
+                    "Börja med 1/12 oktav för att hitta dippen, byt till 1/24 för att ringa in den. " +
+                    "Ren ton visar smala dippar bäst; svajtonen sveper ±5 % och fyller i dem.",
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ToneGrid.DIVISIONS.forEach { d ->
+                    FilterChip(
+                        selected = dipDiv == d,
+                        onClick = { dipDiv = d; dipFreq = ToneGrid.snap(dipFreq, d) },
+                        label = { Text(ToneGrid.label(d)) },
+                    )
+                }
+                FilterChip(
+                    selected = dipWarble,
+                    onClick = {
+                        dipWarble = !dipWarble
+                        if (playingNow && playingSpec is SignalSpec.Tone) play(dipTone(dipFreq, dipWarble))
+                    },
+                    label = { Text("Svajton") },
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { dipFreq = ToneGrid.step(dipFreq, dipDiv, -1); play(dipTone(dipFreq, dipWarble)) },
+                    modifier = Modifier.height(64.dp).width(84.dp),
+                ) { Text("−", fontSize = 30.sp) }
+                Text(
+                    "${SignalSpec.fmt(dipFreq)} Hz",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f).clickable { play(dipTone(dipFreq, dipWarble)) },
+                )
+                Button(
+                    onClick = { dipFreq = ToneGrid.step(dipFreq, dipDiv, 1); play(dipTone(dipFreq, dipWarble)) },
+                    modifier = Modifier.height(64.dp).width(84.dp),
+                ) { Text("+", fontSize = 30.sp) }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ToneGrid.around(dipFreq, dipDiv, 6).forEach { f ->
+                    FilterChip(
+                        selected = f == dipFreq,
+                        onClick = { dipFreq = f; play(dipTone(f, dipWarble)) },
+                        label = { Text(SignalSpec.fmt(f)) },
+                    )
+                }
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Muted("Hoppa till:")
+                listOf(35.0, 57.0, 70.0, 90.0, 120.0, 160.0, 215.0).forEach { f ->
+                    OutlinedButton(onClick = {
+                        dipFreq = ToneGrid.snap(f, dipDiv); play(dipTone(dipFreq, dipWarble))
+                    }) { Text(SignalSpec.fmt(f)) }
+                }
+            }
+            if (!canPlay) Text("Välj din Chromecast ovan först, annars spelas inget.", color = Warn)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = customFreq,
@@ -326,32 +413,17 @@ fun DiagnosticsScreen(services: AppServices) {
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = {
                     customFreq.toDoubleOrNull()?.takeIf { it in 10.0..1000.0 }?.let {
-                        selected = SignalSpec.Tone(it, warble = false)
+                        if (it in ToneGrid.MIN..ToneGrid.MAX) dipFreq = ToneGrid.round(it)
+                        play(dipTone(ToneGrid.round(it), dipWarble))
                     }
-                }) { Text("Välj") }
+                }) { Text("Spela") }
             }
             Muted("Vald: ${selected.label}")
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
-                    onClick = {
-                        if (output == Output.CAST) {
-                            services.local.stop()
-                            val url = services.signalUrl(selected.path)
-                            if (url != null) services.cast.play(url, selected.label, selected.durationMs)
-                            playingSpec = selected
-                        } else {
-                            if (cast.connected) services.cast.stop()
-                            playingSpec = selected
-                            services.local.play(
-                                selected,
-                                outputs.firstOrNull { it.id == selectedOutputId },
-                                method,
-                                "http://127.0.0.1:${SignalServer.PORT}/${selected.path}",
-                            )
-                        }
-                    },
-                    enabled = output == Output.PHONE || cast.connected,
+                    onClick = { play(selected) },
+                    enabled = canPlay,
                     modifier = Modifier.height(56.dp),
                 ) { Text("Spela", fontSize = 18.sp) }
                 Button(
