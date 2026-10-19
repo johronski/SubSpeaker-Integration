@@ -165,11 +165,14 @@ class SweepController(private val services: AppServices) {
                 val db = SweepAnalyzer.powerAverage(results.map { it.db })
                 val spread = if (results.size > 1) SweepAnalyzer.repeatSpread(results.map { it.db }) else null
                 val snr = results.minOf { it.snrDb }
-                val name = label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
+                // I mikrofonkollen namnges mätningen efter mikrofonen som faktiskt användes,
+                // så att två mikrofoner aldrig slås ihop även om "Systemets val" var valt.
+                val micLabel = if (stage == "mic" && device.isNotBlank()) "Mikrofon · $device" else null
+                val name = micLabel ?: label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
                 val curve = Curve(
                     label = name,
                     stage = stage,
-                    group = group.ifBlank { name },
+                    group = micLabel ?: group.ifBlank { name },
                     position = position,
                     time = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date()),
                     db = db,

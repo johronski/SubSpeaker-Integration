@@ -113,7 +113,8 @@ fun GuideContent(
 
             Step.MIC -> StageCard("Mikrofonkoll") {
                 Muted(
-                    "Mät med en mikrofon, byt mikrofon under Verktyg och mät igen på samma plats. " +
+                    "Mät med en mikrofon. Koppla sedan in nästa mikrofon, gå till Verktyg → Mikrofon, tryck Uppdatera " +
+                        "och välj den, och mät igen på exakt samma plats. " +
                         "Appen jämför kurvorna. Steget kan hoppas över.",
                 )
                 val groups = sweep.groupsFor("mic")
