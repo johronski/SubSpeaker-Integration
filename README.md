@@ -6,11 +6,14 @@ Byggd för Velodyne SPL-1200R + Genelec G Four med Chromecast Audio, men princip
 
 ## Status
 
-**v0.1 – diagnos.** Testar att grunderna fungerar på din utrustning innan själva integrationsflödet byggs:
+**v0.7.** Appen har fyra flikar:
 
-- Spelar testsignaler via Chromecast, som styrs direkt över nätverket på samma sätt som i RadioCast (telefonen kör en liten ljudserver på wifi), eller direkt i telefonen, t.ex. via kabel från hörlursutgången.
-- Mäter nivå i ett tredjedelsoktavsband med valfri mikrofon och ljudkälla.
-- Sparar mätningar med etiketter och delar en diagnosrapport.
+- **Guide** – steg för steg: förberedelse med nivåkoll, mikrofonkoll, Genelecens basomkopplare, fas och subnivå. Resultatsidan visar vad du ska ställa in, som en lista att bocka av, och resultatet kan sparas för att jämföras senare.
+- **Lyssna** – testsignaler som spelas direkt vid tryck, dippsökning i 1/3–1/24 oktav, markerade dippar och mikrofonnivå.
+- **Mät** – fria svepmätningar med namn, t.ex. för att jämföra "normal" med "genelec ensam".
+- **Felsökning** – uppspelningsmetod, ljudkälla, servertest och rapport.
+
+Raden överst visar uppspelning, mikrofon och volym och öppnar en panel för att ändra dem. Längst ner finns en fast spelare med Stopp, eller Avbryt under en mätning. Inställningar och mätningar sparas på telefonen, och appen ansluter automatiskt till senast använda Chromecast. Tryck i ett diagram för att lyssna på den frekvensen.
 
 ## Installera
 
