@@ -1,8 +1,19 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package se.johronski.subspeaker.ui
 
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
@@ -165,3 +176,93 @@ fun Sparkline(values: List<Double>, modifier: Modifier = Modifier, higherIsBette
         drawCircle(color, 5.dp.toPx(), Offset(size.width, y(values.last())))
     }
 }
+
+/** En kurva i kurvvisaren. */
+class ExplorerCurve(
+    val label: String,
+    val explain: String,
+    val db: DoubleArray,
+    val color: Color,
+    val dashed: Boolean = false,
+    val thick: Boolean = false,
+    val initiallyOn: Boolean = true,
+)
+
+/**
+ * Detaljerade kurvor med Hz-axel. Varje kurva slås av och på med en knapp.
+ * Första trycket i diagrammet väljer en frekvens; den spelas först när man trycker Spela.
+ */
+@androidx.compose.runtime.Composable
+fun CurveExplorer(
+    services: se.johronski.subspeaker.AppServices,
+    curves: List<ExplorerCurve>,
+    crossover: Double? = null,
+    numbered: List<Pair<Double, Int>> = emptyList(),
+) {
+    val on = androidx.compose.runtime.remember(curves.size) {
+        androidx.compose.runtime.mutableStateMapOf<String, Boolean>().apply { curves.forEach { put(it.label, it.initiallyOn) } }
+    }
+    var picked by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Double?>(null) }
+    val playback by services.playback.state.collectAsState()
+    val ref = curves.firstOrNull()?.let { c ->
+        SweepAnalyzer.FREQUENCIES.indices.filter { SweepAnalyzer.FREQUENCIES[it] in 80.0..125.0 }.map { c.db[it] }.average()
+    }
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        curves.forEach { c ->
+            val sel = on[c.label] == true
+            androidx.compose.material3.FilterChip(
+                selected = sel,
+                onClick = { on[c.label] = !sel },
+                label = { androidx.compose.material3.Text(c.label) },
+                leadingIcon = {
+                    androidx.compose.foundation.layout.Spacer(
+                        Modifier
+                            .size(10.dp)
+                            .androidxClip()
+                            .androidxBg(if (sel) c.color else c.color.copy(alpha = 0.3f)),
+                    )
+                },
+            )
+        }
+    }
+    val visible = curves.filter { on[it.label] == true }
+    SweepChart(
+        visible.map { ChartCurve(it.label, it.db, color = it.color, dashed = it.dashed, thick = it.thick) },
+        refDb = ref,
+        crossover = crossover,
+        numbered = numbered,
+        markers = playback.markers,
+        cursor = picked,
+        onTap = { f -> picked = se.johronski.subspeaker.audio.ToneGrid.snap(f, 24) },
+    )
+    val p = picked
+    if (p != null) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        ) {
+            androidx.compose.material3.Text(
+                "${se.johronski.subspeaker.audio.SignalSpec.fmt(p)} Hz",
+                fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            androidx.compose.material3.Button(onClick = { services.playback.playTone(p) }) { androidx.compose.material3.Text("Spela") }
+            androidx.compose.material3.OutlinedButton(onClick = { services.playback.stop() }) { androidx.compose.material3.Text("Stopp") }
+        }
+    } else {
+        Muted("Tryck i diagrammet för att välja en frekvens och lyssna på den.")
+    }
+    curves.forEach { c ->
+        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.Top) {
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(top = 6.dp).size(10.dp).androidxClip().androidxBg(c.color))
+            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+            androidx.compose.material3.Text(
+                c.label + " – " + c.explain,
+                fontSize = 14.sp, lineHeight = 20.sp, color = InkMuted,
+            )
+        }
+    }
+}
+
+private fun Modifier.androidxClip() = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
+private fun Modifier.androidxBg(c: Color) = this.then(Modifier.background(c))

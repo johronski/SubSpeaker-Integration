@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -112,7 +113,8 @@ fun AppScreen(services: AppServices) {
     var tool by rememberSaveable { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = tool != 0) { tool = 0 }
-    var showSetup by remember { mutableStateOf(false) }
+    // 0 = stängd, 1 = ljud ut, 2 = mikrofon, 3 = båda
+    var setupSection by remember { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
 
     var hasMicPermission by remember {
@@ -136,10 +138,12 @@ fun AppScreen(services: AppServices) {
         playback.spec?.measureFrequency?.let { services.mic.setFrequency(it) }
     }
 
-    val micDevice = remember(settings.micKey, showSetup) { services.micDevice() }
-    val lastRouted = sweep.curves.lastOrNull()?.device?.takeIf { it.isNotBlank() } ?: mic.routedDevice
-    val micName = micDevice?.let { MicMeter.shortName(it) }
-        ?: ("Automatiskt" + (lastRouted?.let { " (senast: ${it.substringAfter("– ").ifBlank { it }})" } ?: ""))
+    val micDevice = remember(settings.micKey, setupSection) { services.micDevice() }
+    // Automatiskt val: Android tar en inkopplad mikrofon före den inbyggda.
+    val autoMic = remember(settings.micKey, setupSection) {
+        services.mic.inputDevices().firstOrNull { it.type != android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC }
+    }
+    val micName = micDevice?.let { MicMeter.shortName(it) } ?: autoMic?.let { MicMeter.shortName(it) } ?: "Inbyggd mikrofon"
     val playName = when (settings.output) {
         Output.CAST -> if (cast.connected) cast.deviceName.orEmpty() else ""
         Output.PHONE -> "Telefonen"
@@ -147,21 +151,33 @@ fun AppScreen(services: AppServices) {
     val setup = Setup(
         hasMicPermission = hasMicPermission,
         requestPermission = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
-        openSetup = { showSetup = true },
+        openSetup = { setupSection = 3 },
         micName = micName,
         playName = playName,
     )
 
     val playing = if (settings.output == Output.PHONE) local.playing else cast.playerState in setOf("Spelar", "Buffrar")
 
+    val outDevice = remember(settings.outKey, setupSection) { services.outputDevice() }
     val playText = when {
-        settings.output == Output.PHONE -> "Telefonen"
-        cast.connected -> cast.deviceName.orEmpty()
+        settings.output == Output.PHONE -> when (outDevice?.type) {
+            android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Telefonens högtalare"
+            android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_DEVICE,
+            -> "Telefonen (kabel)"
+            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Telefonen (Bluetooth)"
+            else -> "Telefonen"
+        }
+        cast.connected -> shortCastName(cast.deviceName.orEmpty())
         cast.connecting -> "Ansluter …"
         else -> "Välj Chromecast"
     }
     val playOk = settings.output == Output.PHONE || cast.connected
-    val volText = if (settings.output == Output.CAST) cast.volume?.let { " · ${(it * 100).toInt()} %" } ?: "" else ""
+    val volText = if (settings.output == Output.CAST) {
+        cast.volume?.let { "${(it * 100).toInt()} %" } ?: ""
+    } else {
+        "${(settings.localGain * 100).toInt()} %"
+    }
     val toolTitle = when (tool) {
         1 -> "Lyssna på toner"
         2 -> "Fri mätning"
@@ -182,23 +198,25 @@ fun AppScreen(services: AppServices) {
                         androidx.compose.material3.TextButton(onClick = { tool = 0 }) { Text("‹ Hälsokoll", fontSize = 15.sp) }
                     }
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { showSetup = true }
-                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f).padding(vertical = 6.dp),
                     ) {
-                        Spacer(Modifier.size(7.dp).clip(CircleShape).background(if (playOk) Good else Warn))
-                        Spacer(Modifier.width(8.dp))
-                        Text(playText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(" · ", fontSize = 14.sp, color = Line)
-                        Spacer(Modifier.size(7.dp).clip(CircleShape).background(if (hasMicPermission) Good else Warn))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            (if (hasMicPermission) micName.substringBefore(" (") else "Mikrofon") + volText,
-                            fontSize = 14.sp, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                        StatusChip(
+                            icon = { c -> SpeakerIcon(c) },
+                            text = playText,
+                            extra = volText,
+                            ok = playOk,
+                            description = "Ljud ut: $playText. Tryck för att ändra uppspelning och volym.",
+                            modifier = Modifier.weight(1.25f),
+                        ) { setupSection = 1 }
+                        StatusChip(
+                            icon = { c -> MicIcon(c) },
+                            text = if (hasMicPermission) micName else "Ge tillgång",
+                            extra = "",
+                            ok = hasMicPermission,
+                            description = "Mikrofon: $micName. Tryck för att byta mikrofon.",
+                            modifier = Modifier.weight(1f),
+                        ) { if (hasMicPermission) setupSection = 2 else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }
                     }
                     androidx.compose.foundation.layout.Box {
                         androidx.compose.material3.IconButton(onClick = { menu = true }) {
@@ -213,7 +231,7 @@ fun AppScreen(services: AppServices) {
                         ) {
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text("Uppspelning, mikrofon och volym") },
-                                onClick = { menu = false; showSetup = true },
+                                onClick = { menu = false; setupSection = 3 },
                             )
                             androidx.compose.material3.DropdownMenuItem(
                                 text = { Text(if (settings.voice) "Röstguide: på" else "Röstguide: av") },
@@ -259,8 +277,8 @@ fun AppScreen(services: AppServices) {
         }
     }
 
-    if (showSetup) {
-        SetupSheet(services, hasMicPermission, setup.requestPermission) { showSetup = false }
+    if (setupSection != 0) {
+        SetupSheet(services, hasMicPermission, setup.requestPermission, setupSection) { setupSection = 0 }
     }
 }
 
@@ -323,6 +341,7 @@ private fun SetupSheet(
     services: AppServices,
     hasMicPermission: Boolean,
     requestPermission: () -> Unit,
+    section: Int,
     onDismiss: () -> Unit,
 ) {
     val settings by services.settings.state.collectAsState()
@@ -346,7 +365,8 @@ private fun SetupSheet(
                 .navigationBarsPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Uppspelning", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+            if (section != 2) {
+            Text("Ljud ut", fontSize = 20.sp, fontWeight = FontWeight.Medium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Output.entries.forEach { o ->
                     FilterChip(selected = settings.output == o, onClick = { services.setOutput(o) }, label = { Text(o.label) })
@@ -406,8 +426,10 @@ private fun SetupSheet(
                 Text("Tillåt över 60 %")
             }
             Muted("Börja lågt. Djupbas på hög nivå kan skada högtalarna utan att låta särskilt starkt.")
+            }
 
-            HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 6.dp))
+            if (section == 3) HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 6.dp))
+            if (section != 1) {
             Text("Mikrofon", fontSize = 20.sp, fontWeight = FontWeight.Medium)
             if (!hasMicPermission) {
                 Button(onClick = requestPermission) { Text("Ge appen tillgång till mikrofonen") }
@@ -421,8 +443,9 @@ private fun SetupSheet(
                 }
                 inputs.forEach { d ->
                     val k = Store.deviceKey(d)
-                    ChoiceRow(MicMeter.describe(d), settings.micKey == k) { services.settings.update { it.copy(micKey = k) } }
+                    ChoiceRow(MicMeter.shortName(d), settings.micKey == k) { services.settings.update { it.copy(micKey = k) } }
                 }
+            }
             }
             Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Klar", fontSize = 17.sp) }
             Spacer(Modifier.height(12.dp))
@@ -519,5 +542,73 @@ fun SignalChips(services: AppServices, signals: List<SignalSpec>, selected: Sign
         signals.forEach { s ->
             FilterChip(selected = selected == s, onClick = { services.playback.play(s) }, label = { Text(s.label) })
         }
+    }
+}
+
+/** "Vardagsrum/Hall Chromecast" → "Vardagsrum". */
+private fun shortCastName(n: String): String =
+    n.substringBefore("/").removeSuffix(" Chromecast").trim().ifBlank { n }
+
+/** Knapp överst: symbol, namn och eventuellt volym. Grå–grön symbol när allt fungerar, ockra vid problem. */
+@Composable
+private fun StatusChip(
+    icon: @Composable (androidx.compose.ui.graphics.Color) -> Unit,
+    text: String,
+    extra: String,
+    ok: Boolean,
+    description: String,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (ok) CardColor else WarnSoft)
+            .border(1.dp, Line, RoundedCornerShape(12.dp))
+            .clickable(onClickLabel = description, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        icon(if (ok) Good else Warn)
+        Spacer(Modifier.width(8.dp))
+        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (extra.isNotEmpty()) {
+            Spacer(Modifier.width(6.dp))
+            Text(extra, fontSize = 13.sp, color = InkMuted, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SpeakerIcon(color: androidx.compose.ui.graphics.Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val h = size.height
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.10f, h * 0.38f); lineTo(w * 0.30f, h * 0.38f); lineTo(w * 0.55f, h * 0.15f)
+            lineTo(w * 0.55f, h * 0.85f); lineTo(w * 0.30f, h * 0.62f); lineTo(w * 0.10f, h * 0.62f); close()
+        }
+        drawPath(p, color)
+        val st = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawArc(color, -40f, 80f, false, androidx.compose.ui.geometry.Offset(w * 0.45f, h * 0.30f), androidx.compose.ui.geometry.Size(w * 0.30f, h * 0.40f), style = st)
+        drawArc(color, -45f, 90f, false, androidx.compose.ui.geometry.Offset(w * 0.45f, h * 0.12f), androidx.compose.ui.geometry.Size(w * 0.50f, h * 0.76f), style = st)
+    }
+}
+
+@Composable
+private fun MicIcon(color: androidx.compose.ui.graphics.Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val h = size.height
+        drawRoundRect(
+            color,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.06f),
+            size = androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.52f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.14f),
+        )
+        val st = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawArc(color, 0f, 180f, false, androidx.compose.ui.geometry.Offset(w * 0.22f, h * 0.22f), androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.50f), style = st)
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.72f), androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.92f), 1.8.dp.toPx())
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.32f, h * 0.92f), androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.92f), 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
 }

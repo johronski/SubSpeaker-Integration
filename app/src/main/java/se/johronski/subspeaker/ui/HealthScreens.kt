@@ -273,6 +273,7 @@ private fun DiagnosisScreen(services: AppServices, s: HealthController.State) {
     val rep = s.report ?: return
     val numbered = rep.findings.mapIndexed { i, f -> i + 1 to f }
     var why by remember { mutableStateOf<String?>(null) }
+    var showCurves by remember { mutableStateOf(false) }
     Page {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Kicker("Hälsokoll klar")
@@ -290,6 +291,15 @@ private fun DiagnosisScreen(services: AppServices, s: HealthController.State) {
                 marks = numbered.filter { it.second.freq != null && it.second.freq!! < 300 }
                     .map { (n, f) -> LandscapeMark(f.freq!!, n, f.action != null) },
             )
+            TextButton(onClick = { showCurves = !showCurves }) { Text(if (showCurves) "Dölj kurvor ▴" else "Visa kurvor ▾") }
+            if (showCurves) {
+                CurveExplorer(
+                    services,
+                    healthCurves(s, after = false),
+                    crossover = rep.crossoverHz,
+                    numbered = numbered.mapNotNull { (n, f) -> f.freq?.let { it to n } },
+                )
+            }
         }
         numbered.forEach { (n, f) ->
             val resolved = f.key in s.resolved
@@ -570,6 +580,9 @@ private fun DoneScreen(services: AppServices, s: HealthController.State) {
                     Muted("- - Före")
                     Text("— Efter", color = Accent, fontSize = 15.sp)
                 }
+                var showCurves by remember { mutableStateOf(false) }
+                TextButton(onClick = { showCurves = !showCurves }) { Text(if (showCurves) "Dölj kurvor ▴" else "Visa kurvor ▾") }
+                if (showCurves) CurveExplorer(services, healthCurves(s, after = true), crossover = after?.crossoverHz)
             }
         }
         Panel {
@@ -610,4 +623,16 @@ private fun DoneScreen(services: AppServices, s: HealthController.State) {
         }
         TextButton(onClick = { services.health.home() }, modifier = Modifier.fillMaxWidth()) { Text("Till start") }
     }
+}
+
+/** Hälsokollens kurvor med fasta färger och förklaringar i vardagsord. */
+private fun healthCurves(s: HealthController.State, after: Boolean): List<ExplorerCurve> = buildList {
+    if (after) {
+        s.after?.let { add(ExplorerCurve("Efter", "allt tillsammans efter ändringarna", it, Accent, thick = true)) }
+        s.together?.let { add(ExplorerCurve("Före", "allt tillsammans före ändringarna", it, Color(0xFF8A9294), dashed = true)) }
+    } else {
+        s.together?.let { add(ExplorerCurve("Tillsammans", "det du hör till vardags, sub och Genelec", it, Accent, thick = true)) }
+    }
+    s.genelec?.let { add(ExplorerCurve("Genelec ensam", "det som hörs med MUTE på subben", it, SeriesColors[1], initiallyOn = !after)) }
+    s.sub?.let { add(ExplorerCurve("Sub ensam", "det som hörs med Genelecerna avstängda", it, SeriesColors[2], initiallyOn = !after)) }
 }

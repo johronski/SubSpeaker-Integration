@@ -27,7 +27,17 @@ import kotlin.math.ln
 import kotlin.math.pow
 
 /** En kurva i diagrammet, med valfritt spridningsband (min–max mellan mätplatser). */
-class ChartCurve(val label: String, val db: DoubleArray, val band: Pair<DoubleArray, DoubleArray>? = null)
+class ChartCurve(
+    val label: String,
+    val db: DoubleArray,
+    val band: Pair<DoubleArray, DoubleArray>? = null,
+    /** Fast färg; annars efter ordning i [SeriesColors]. */
+    val color: androidx.compose.ui.graphics.Color? = null,
+    /** Streckad, t.ex. "före". */
+    val dashed: Boolean = false,
+    /** Lite tjockare än övriga när ingen kurva är markerad. */
+    val thick: Boolean = false,
+)
 
 private const val F_MIN = 20.0
 private const val F_MAX = 300.0
@@ -47,6 +57,12 @@ fun SweepChart(
     markers: List<Double> = emptyList(),
     cursor: Double? = null,
     onTap: ((Double) -> Unit)? = null,
+    /** Fast nollnivå (dB före normalisering), så att skalan inte hoppar när kurvor slås av och på. */
+    refDb: Double? = null,
+    /** Där sub och Genelec möts, ritas som en streckad linje med etikett. */
+    crossover: Double? = null,
+    /** Numrerade fynd: (frekvens, nummer). */
+    numbered: List<Pair<Double, Int>> = emptyList(),
 ) {
     val freqs = SweepAnalyzer.FREQUENCIES
     val tapModifier = if (onTap != null) {
@@ -69,7 +85,7 @@ fun SweepChart(
 
         // Gemensam normalisering.
         val refIdx = freqs.indices.filter { freqs[it] in 80.0..125.0 }
-        val offset = curves.flatMap { c -> refIdx.map { c.db[it] } }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
+        val offset = refDb ?: curves.flatMap { c -> refIdx.map { c.db[it] } }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
         fun n(v: Double) = v - offset
         val all = curves.flatMap { c ->
             c.db.map { n(it) } + (c.band?.let { b -> b.first.map { n(it) } + b.second.map { n(it) } } ?: emptyList())
@@ -122,7 +138,7 @@ fun SweepChart(
             }
             for (i in freqs.indices.reversed()) path.lineTo(x(freqs[i]), y(n(lo[i])))
             path.close()
-            drawPath(path, SeriesColors[idx % SeriesColors.size].copy(alpha = 0.14f))
+            drawPath(path, (c.color ?: SeriesColors[idx % SeriesColors.size]).copy(alpha = 0.14f))
         }
 
         // Kurvor: markerad kurva sist så att den ligger överst.
@@ -135,13 +151,19 @@ fun SweepChart(
                 val py = y(n(c.db[i]))
                 if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
             }
-            val color = SeriesColors[idx % SeriesColors.size]
+            val color = c.color ?: SeriesColors[idx % SeriesColors.size]
             val (w, a) = when {
-                highlight == null -> 2.5.dp.toPx() to 1f
+                highlight == null -> (if (c.thick) 3.5.dp.toPx() else 2.5.dp.toPx()) to 1f
                 idx == highlight -> 3.5.dp.toPx() to 1f
                 else -> 1.5.dp.toPx() to 0.4f
             }
-            drawPath(path, color.copy(alpha = a), style = Stroke(width = w, join = StrokeJoin.Round, cap = StrokeCap.Round))
+            drawPath(
+                path, color.copy(alpha = a),
+                style = Stroke(
+                    width = w, join = StrokeJoin.Round, cap = StrokeCap.Round,
+                    pathEffect = if (c.dashed) PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx())) else null,
+                ),
+            )
         }
 
         // Namn vid kurvornas högra ände, utan att de krockar.
@@ -167,9 +189,32 @@ fun SweepChart(
                 val text = curves[idx].label.let { if (it.length > 16) it.take(15) + "…" else it }
                 val yy = py.coerceIn(top + gap, bottom)
                 canvas.drawText(text, right - 2.dp.toPx(), yy, halo)
-                labelPaint.color = SeriesColors[idx % SeriesColors.size].copy(alpha = if (highlight == null || highlight == idx) 1f else 0.6f).toArgb()
+                labelPaint.color = (curves[idx].color ?: SeriesColors[idx % SeriesColors.size]).copy(alpha = if (highlight == null || highlight == idx) 1f else 0.6f).toArgb()
                 canvas.drawText(text, right - 2.dp.toPx(), yy, labelPaint)
             }
+        }
+
+        // Där sub och Genelec möts
+        crossover?.takeIf { it in F_MIN..F_MAX }?.let { f ->
+            drawLine(Good, Offset(x(f), top), Offset(x(f), bottom), 1.5.dp.toPx(), pathEffect = dash)
+            tickPaint.color = Good.toArgb()
+            tickPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("möts ${SignalSpec.fmt(Math.round(f).toDouble())} Hz", x(f), bottom - 4.dp.toPx(), tickPaint)
+        }
+
+        // Numrerade fynd längst upp
+        val numPaint = Paint().apply {
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            textSize = 11.sp.toPx()
+            typeface = Typeface.DEFAULT_BOLD
+            color = SeriesColors[1].toArgb()
+        }
+        numbered.filter { it.first in F_MIN..F_MAX }.forEach { (f, n) ->
+            val cy = top + 9.dp.toPx()
+            drawCircle(CardColor, 9.dp.toPx(), Offset(x(f), cy))
+            drawCircle(SeriesColors[1], 9.dp.toPx(), Offset(x(f), cy), style = Stroke(1.5.dp.toPx()))
+            canvas.drawText("$n", x(f), cy + 4.dp.toPx(), numPaint)
         }
 
         // Tonen som spelas
