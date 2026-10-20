@@ -56,7 +56,10 @@ fun LiveToolScreen(services: AppServices, setup: Setup) {
                 }
                 if (s.live.snapshots.isNotEmpty()) TextButton(onClick = { services.health.clearSnapshots() }) { Text("Rensa") }
             }
-            Muted("Upp till tre jämförelser, t.ex. före och efter att du flyttat lyssningsplatsen.")
+            Muted("Upp till tre jämförelser, t.ex. före och efter att du flyttat lyssningsplatsen. De finns kvar till nästa gång.")
+            OutlinedButton(onClick = { services.health.saveLiveToHistory() }, enabled = s.live.curve != null) {
+                Text("Spara i Sparade resultat")
+            }
         }
     }
 }

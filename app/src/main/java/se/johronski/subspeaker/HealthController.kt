@@ -28,7 +28,7 @@ import java.util.Locale
  */
 class HealthController(private val services: AppServices, private val store: Store, private val speaker: Speaker) {
 
-    enum class Screen { START, CHECK, DIAGNOSIS, TUNE, AFTER, DONE }
+    enum class Screen { START, CHECK, DIAGNOSIS, TUNE, AFTER, DONE, HISTORY }
 
     enum class Part(val title: String, val hint: String) {
         TOGETHER("Allt tillsammans", "sub och Genelec spelar"),
@@ -98,6 +98,8 @@ class HealthController(private val services: AppServices, private val store: Sto
         val elapsedS: Int = 0,
         /** Verktyget "Live-kurva" i menyn är igång. */
         val liveTool: Boolean = false,
+        /** Id för den här kollens rad i Sparade resultat. */
+        val resultId: String? = null,
     )
 
     private val _state = MutableStateFlow(load())
@@ -177,9 +179,39 @@ class HealthController(private val services: AppServices, private val store: Sto
         val own = s.live.snapshots.filter { it.label.startsWith("Jämförelse") }
         val n = (1..3).firstOrNull { i -> own.none { it.label == "Jämförelse $i" } } ?: return@set s
         s.copy(live = s.live.copy(snapshots = s.live.snapshots + Snapshot("Jämförelse $n", c)))
+    }.also { saveSnapshots() }
+
+    fun clearSnapshots() {
+        set { it.copy(live = it.live.copy(snapshots = emptyList())) }
+        saveSnapshots()
     }
 
-    fun clearSnapshots() = set { it.copy(live = it.live.copy(snapshots = emptyList())) }
+    /** Jämförelserna i Live-kurva sparas, så att de finns kvar nästa gång. */
+    private fun saveSnapshots() {
+        val j = JSONObject()
+        _state.value.live.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { j.put(it.label, Store.doubles(it.db)) }
+        store.put(SNAP_KEY, j.toString())
+    }
+
+    private fun loadSnapshots(): List<Snapshot> = try {
+        store.get(SNAP_KEY)?.let { raw ->
+            val j = JSONObject(raw)
+            j.keys().asSequence().mapNotNull { k -> Store.doubles(j.optJSONArray(k))?.let { Snapshot(k, it) } }.sortedBy { it.label }.toList()
+        } ?: emptyList()
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** Sparar kurvan i Live-kurva (och jämförelserna) i Sparade resultat. */
+    fun saveLiveToHistory() {
+        val l = _state.value.live
+        val c = l.curve ?: return
+        val curves = linkedMapOf("Nu" to c)
+        l.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { curves[it.label] = it.db }
+        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
+        services.guide.saveResult(SavedResult(date, listOf("Live-kurva, ${l.speed.label.lowercase(Locale.ROOT)} medelvärde"), curves, "Live-kurva"))
+        services.notify("Sparat i Sparade resultat")
+    }
 
     private fun shifted(ex: List<IntRange>, base: Int): List<IntRange> =
         ex.map { r -> (r.first - base).coerceAtLeast(0)..(if (r.last == Int.MAX_VALUE) Int.MAX_VALUE else r.last - base) }
@@ -191,7 +223,8 @@ class HealthController(private val services: AppServices, private val store: Sto
         spectrum.reset()
         val speed = _state.value.live.speed
         spectrum.tauSeconds = speed.tau
-        set { it.copy(liveTool = true, live = Live(listening = true, speed = speed), error = null) }
+        val kept = _state.value.live.snapshots.filter { it.label.startsWith("Jämförelse") }.ifEmpty { loadSnapshots() }
+        set { it.copy(liveTool = true, live = Live(listening = true, speed = speed, snapshots = kept), error = null) }
         job = scope.launch {
             try {
                 val rec = startListening()
@@ -247,7 +280,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             it.copy(
                 screen = Screen.CHECK, part = Part.TOGETHER, together = null, genelec = null, sub = null,
                 report = null, resolved = emptySet(), changes = emptyList(), after = null, afterReport = null,
-                error = null, genelecOff = false, warnings = emptyMap(),
+                error = null, genelecOff = false, warnings = emptyMap(), resultId = null,
             )
         }
         measure(Part.TOGETHER)
@@ -345,6 +378,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                     val s = _state.value
                     val rep = Diagnosis.diagnose(r.db, s.genelec ?: r.db, s.sub, target)
                     set { it.copy(measuring = false, after = r.db, afterReport = rep, screen = Screen.DONE) }
+                    record()
                     speaker.say("Klart.")
                     save()
                     return@launch
@@ -392,7 +426,24 @@ class HealthController(private val services: AppServices, private val store: Sto
         val g = s.genelec ?: return
         val rep = Diagnosis.diagnose(t, g, s.sub, target)
         set { it.copy(screen = Screen.DIAGNOSIS, report = rep, measuring = false) }
+        record()
         save()
+    }
+
+    /** Sparar kollen i Sparade resultat (samma rad uppdateras efter åtgärder och efterkontroll). */
+    private fun record() {
+        val s = _state.value
+        val rep = s.afterReport ?: s.report ?: return
+        val id = s.resultId ?: java.util.UUID.randomUUID().toString()
+        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
+        val curves = linkedMapOf<String, DoubleArray>()
+        s.after?.let { curves["Efter"] = it }
+        s.together?.let { curves["Tillsammans"] = it }
+        s.genelec?.let { curves["Genelec ensam"] = it }
+        s.sub?.let { curves["Sub ensam"] = it }
+        val lines = listOf(rep.headline) + s.changes + rep.findings.map { f -> (if (f.action == null) "Info: " else "Fynd: ") + f.title }
+        services.guide.upsertResult(SavedResult(date, lines, curves, "Hälsokoll", id))
+        set { it.copy(resultId = id, lastDate = date.substringBefore(" "), lastSummary = summary(it)) }
     }
 
     fun genelecBackOn() = set { it.copy(genelecOff = false) }
@@ -553,6 +604,7 @@ class HealthController(private val services: AppServices, private val store: Sto
         }
         stopAll()
         set { it.copy(screen = Screen.DIAGNOSIS, tune = null, resolved = it.resolved + key, changes = (it.changes.filterNot { c -> c.substringBefore(":") == change.substringBefore(":") } + change)) }
+        record()
         save()
     }
 
@@ -569,14 +621,9 @@ class HealthController(private val services: AppServices, private val store: Sto
     }
 
     fun saveResult() {
-        val s = _state.value
-        val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
-        val lines = s.changes.ifEmpty { listOf("Inga ändringar") } +
-            (s.afterReport?.findings?.filter { it.action == null }?.map { it.title } ?: emptyList())
-        services.guide.saveResult(SavedResult(date, lines, s.after ?: s.together))
-        set { it.copy(lastDate = date.substringBefore(" "), lastSummary = summary(s)) }
+        record()
         save()
-        services.notify("Resultatet sparat")
+        services.notify("Sparat i Sparade resultat")
     }
 
     fun summary(s: State): String {
@@ -591,10 +638,13 @@ class HealthController(private val services: AppServices, private val store: Sto
         set { it.copy(screen = Screen.START) }
     }
 
+    fun openHistory() = set { it.copy(screen = Screen.HISTORY) }
+
     /** Bakåtknappen. Returnerar false om appen ska stängas. */
     fun back(): Boolean {
         return when (_state.value.screen) {
             Screen.START -> false
+            Screen.HISTORY -> { home(); true }
             Screen.CHECK, Screen.AFTER -> { cancel(); true }
             Screen.TUNE -> { leaveTune(); true }
             Screen.DIAGNOSIS, Screen.DONE -> { home(); true }
@@ -682,6 +732,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             .put("lastDate", s.lastDate ?: JSONObject.NULL)
             .put("lastSummary", s.lastSummary ?: JSONObject.NULL)
             .put("warnings", JSONObject().also { w -> s.warnings.forEach { (k, v) -> w.put(k, v) } })
+            .put("resultId", s.resultId ?: JSONObject.NULL)
         store.put(KEY, j.toString())
     }
 
@@ -700,6 +751,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                 lastDate = if (j.isNull("lastDate")) null else j.optString("lastDate"),
                 lastSummary = if (j.isNull("lastSummary")) null else j.optString("lastSummary"),
                 warnings = j.optJSONObject("warnings")?.let { w -> w.keys().asSequence().associateWith { k -> w.getString(k) } } ?: emptyMap(),
+                resultId = if (j.isNull("resultId")) null else j.optString("resultId"),
             ).let { s ->
                 val t = s.together
                 val g = s.genelec
@@ -722,5 +774,6 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     private companion object {
         const val KEY = "health"
+        const val SNAP_KEY = "liveSnapshots"
     }
 }

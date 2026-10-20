@@ -192,7 +192,19 @@ object Guide {
 }
 
 /** Ett sparat slutresultat, för att kunna jämföra med senare inställningar. */
-data class SavedResult(val date: String, val lines: List<String>, val curve: DoubleArray?)
+data class SavedResult(
+    val date: String,
+    val lines: List<String>,
+    /** Kurvor med namn, t.ex. "Tillsammans", "Genelec ensam", "Sub ensam", "Efter". */
+    val curves: Map<String, DoubleArray> = emptyMap(),
+    /** "Hälsokoll" eller "Live-kurva". */
+    val source: String = "Hälsokoll",
+    val id: String = java.util.UUID.randomUUID().toString(),
+) {
+    /** Huvudkurvan: efter ändringarna om det finns, annars allt tillsammans. */
+    val curve: DoubleArray?
+        get() = curves["Efter"] ?: curves["Tillsammans"] ?: curves.values.firstOrNull()
+}
 
 class GuideController(private val store: Store) {
     enum class Step(val title: String) {
@@ -241,9 +253,15 @@ class GuideController(private val store: Store) {
 
     fun toggleDone(key: String) = set { it.copy(done = if (key in it.done) it.done - key else it.done + key) }
 
-    fun saveResult(r: SavedResult) = set { it.copy(history = (listOf(r) + it.history).take(20)) }
+    fun saveResult(r: SavedResult) = set { it.copy(history = (listOf(r) + it.history).take(30)) }
 
-    fun removeResult(r: SavedResult) = set { it.copy(history = it.history - r) }
+    /** Lägger till eller uppdaterar ett resultat med samma id (överst om det är nytt). */
+    fun upsertResult(r: SavedResult) = set { st ->
+        val i = st.history.indexOfFirst { it.id == r.id }
+        st.copy(history = if (i >= 0) st.history.toMutableList().also { it[i] = r } else (listOf(r) + st.history).take(30))
+    }
+
+    fun removeResult(r: SavedResult) = set { it.copy(history = it.history.filterNot { h -> h.id == r.id }) }
 
     /** Börjar om guiden men behåller sparade resultat. */
     fun reset() = set { State(history = it.history, genelecBass = it.genelecBass) }
@@ -254,9 +272,11 @@ class GuideController(private val store: Store) {
         val s = _state.value
         val hist = JSONArray()
         s.history.forEach { r ->
+            val cj = JSONObject()
+            r.curves.forEach { (k, v) -> cj.put(k, Store.doubles(v)) }
             hist.put(
-                JSONObject().put("date", r.date).put("lines", Store.strings(r.lines))
-                    .put("curve", r.curve?.let { Store.doubles(it) } ?: JSONObject.NULL),
+                JSONObject().put("id", r.id).put("date", r.date).put("source", r.source)
+                    .put("lines", Store.strings(r.lines)).put("curves", cj),
             )
         }
         store.put(
@@ -289,10 +309,19 @@ class GuideController(private val store: Store) {
                 done = Store.strings(j.optJSONArray("done")).toSet(),
                 history = (0 until hist.length()).map { i ->
                     val o = hist.getJSONObject(i)
+                    val cj = o.optJSONObject("curves")
+                    val curves = if (cj != null) {
+                        cj.keys().asSequence().mapNotNull { k -> Store.doubles(cj.optJSONArray(k))?.let { k to it } }.toMap()
+                    } else {
+                        // Äldre format: en enda kurva.
+                        (if (o.isNull("curve")) null else Store.doubles(o.optJSONArray("curve")))?.let { mapOf("Kurva" to it) } ?: emptyMap()
+                    }
                     SavedResult(
-                        o.optString("date"),
-                        Store.strings(o.optJSONArray("lines")),
-                        if (o.isNull("curve")) null else Store.doubles(o.optJSONArray("curve")),
+                        date = o.optString("date"),
+                        lines = Store.strings(o.optJSONArray("lines")),
+                        curves = curves,
+                        source = o.optString("source").ifBlank { "Hälsokoll" },
+                        id = o.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
                     )
                 },
             )

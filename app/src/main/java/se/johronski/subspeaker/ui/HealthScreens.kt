@@ -68,6 +68,7 @@ fun HealthFlow(services: AppServices, setup: Setup) {
             null -> DiagnosisScreen(services, s)
         }
         Screen.DONE -> DoneScreen(services, s)
+        Screen.HISTORY -> HistoryScreen(services)
     }
 }
 
@@ -163,6 +164,23 @@ private fun StartScreen(services: AppServices, s: HealthController.State, setup:
             }
         } else if (s.report != null) {
             TextButton(onClick = { services.health.openLast() }) { Text("Visa senaste diagnosen") }
+        }
+        val guide by services.guide.state.collectAsState()
+        if (guide.history.isNotEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { services.health.openHistory() }
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Sparade resultat", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text("${guide.history.size} st · jämför kurvor", fontSize = 14.sp, color = InkMuted)
+                }
+                Text("›", fontSize = 22.sp, color = InkMuted)
+            }
         }
     }
 }
@@ -656,9 +674,10 @@ private fun DoneScreen(services: AppServices, s: HealthController.State) {
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = { services.health.saveResult() }, modifier = Modifier.weight(1f).height(54.dp)) { Text("Spara", fontSize = 16.sp) }
+            Button(onClick = { services.health.openHistory() }, modifier = Modifier.weight(1f).height(54.dp)) { Text("Sparade resultat", fontSize = 16.sp) }
             OutlinedButton(onClick = { services.health.startCheck() }, modifier = Modifier.weight(1f).height(54.dp)) { Text("Kolla igen", fontSize = 16.sp) }
         }
+        Muted("Kollen sparas automatiskt i Sparade resultat, med kurvorna före och efter.")
         TextButton(onClick = { services.health.home() }, modifier = Modifier.fillMaxWidth()) { Text("Till start") }
     }
 }
