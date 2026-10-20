@@ -13,7 +13,9 @@ Byggd för Velodyne SPL-1200R + Genelec G Four med Chromecast Audio, men princip
 3. **Åtgärda:** varje fynd öppnar en stämapparat som visar live hur jämn basen är. För fasen säger appen vilket läge du ska trycka härnäst, mäter alla fyra och föreslår det bästa. Lågpass och nivå justeras med direkt besked som syns från rummet. Röstguiden kan läsa upp instruktionerna.
 4. **Klart:** en efterkontroll visar före och efter, och resultatet kan sparas.
 
-Menyn uppe till höger har uppspelning, mikrofon och volym, röstguiden, samt verktygen Lyssna på toner, Fri mätning och Felsökning och export.
+I stämapparaten visar **Visa kurva** den levande frekvenskurvan (exponentiellt medelvärde: Snabb 1,5 s, Normal 4 s, Lugn 12 s). I fasguidningen sparas kurvan för varje fasläge automatiskt.
+
+Menyn uppe till höger har uppspelning, mikrofon och volym, röstguiden, samt verktygen Live-kurva (mätljudet spelar och kurvan visas hela tiden, med frys och upp till tre jämförelser), Lyssna på toner, Fri mätning och Felsökning och export.
 
 ## Installera
 

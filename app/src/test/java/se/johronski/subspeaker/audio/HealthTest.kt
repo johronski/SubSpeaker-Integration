@@ -178,4 +178,24 @@ class HealthTest {
         val strict = Multitone.analyze(rec)
         if (strict == null) assertTrue(!r!!.reliable)
     }
+
+    @Test
+    fun liveCurveFollowsChanges() {
+        val a = record(0.5, 0.0, 12.0)
+        val b = record(0.25, 0.0, 12.0)
+        val stream = a + b
+        val live = LiveSpectrum(1.5)
+        val step = SweepAnalyzer.FS / 3
+        var n = Multitone.FRAME + 600
+        var atA = 0.0
+        while (n <= stream.size) {
+            live.update(stream.copyOfRange(n - Multitone.FRAME - 600, n), 1.0 / 3)
+            if (n in (a.size - step)..a.size) atA = at(live.curve!!, 100.0)
+            n += step
+        }
+        // Följer först nivån i a, sedan b (6 dB lägre).
+        assertEquals(20 * log10(0.5), atA, 0.4)
+        assertEquals(20 * log10(0.25), at(live.curve!!, 100.0), 0.5)
+        assertTrue(live.stable)
+    }
 }

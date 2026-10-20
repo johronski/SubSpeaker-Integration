@@ -92,6 +92,9 @@ class SweepRecorder {
     /** Antal nedsamplade sampel hittills. */
     val size: Int get() = synchronized(lock) { count }
 
+    /** De senaste [n] sampel (eller färre om inspelningen är kortare). */
+    fun tail(n: Int): FloatArray = synchronized(lock) { buffer.copyOfRange((count - n).coerceAtLeast(0), count) }
+
     /** Kopia av inspelningen hittills, medan den pågår. */
     fun snapshot(): FloatArray = synchronized(lock) { buffer.copyOf(count) }
 

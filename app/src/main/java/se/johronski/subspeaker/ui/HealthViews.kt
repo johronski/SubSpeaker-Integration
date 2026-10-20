@@ -266,3 +266,88 @@ fun CurveExplorer(
 
 private fun Modifier.androidxClip() = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
 private fun Modifier.androidxBg(c: Color) = this.then(Modifier.background(c))
+
+private fun snapshotColor(label: String): Color = when (label) {
+    "Fas 0" -> SeriesColors[1]
+    "Fas 90" -> SeriesColors[2]
+    "Fas 180" -> SeriesColors[3]
+    "Fas 270" -> SeriesColors[4]
+    "Jämförelse 1" -> SeriesColors[1]
+    "Jämförelse 2" -> SeriesColors[2]
+    else -> SeriesColors[4]
+}
+
+/**
+ * Levande frekvenskurva: hastighet, frys, nollställ skala, jämförelsekurvor.
+ * Tryck i diagrammet för att läsa av nivåerna vid en frekvens (inget spelas, mätljudet fortsätter).
+ */
+@androidx.compose.runtime.Composable
+fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johronski.subspeaker.HealthController.Live) {
+    var picked by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Double?>(null) }
+    val playback by services.playback.state.collectAsState()
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        se.johronski.subspeaker.audio.LiveSpectrum.Speed.entries.forEach { sp ->
+            androidx.compose.material3.FilterChip(
+                selected = live.speed == sp,
+                onClick = { services.health.setSpeed(sp) },
+                label = { androidx.compose.material3.Text(sp.label) },
+            )
+        }
+        androidx.compose.material3.FilterChip(
+            selected = live.frozen,
+            onClick = { services.health.toggleFreeze() },
+            label = { androidx.compose.material3.Text(if (live.frozen) "Fryst" else "Frys") },
+        )
+    }
+    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.Spacer(
+            Modifier.size(9.dp).androidxClip().androidxBg(if (live.stable && !live.frozen) Good else Line),
+        )
+        androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+        Muted(
+            when {
+                live.frozen -> "Kurvan är fryst"
+                live.curve == null -> "Väntar på mätljudet …"
+                live.stable -> "Kurvan har stabiliserat sig"
+                else -> "Kurvan ändrar sig …"
+            },
+        )
+    }
+    val curves = buildList {
+        live.snapshots.forEach { add(ChartCurve(it.label, it.db, color = snapshotColor(it.label))) }
+        live.startCurve?.let { add(ChartCurve("Start", it, color = Color(0xFF8A9294), dashed = true)) }
+        live.curve?.let { add(ChartCurve("Nu", it, color = Accent, thick = true)) }
+    }
+    SweepChart(
+        curves,
+        refDb = live.refDb,
+        cursor = picked,
+        markers = playback.markers,
+        onTap = { f -> picked = se.johronski.subspeaker.audio.ToneGrid.snap(f, 24) },
+    )
+    val p = picked
+    val ref = live.refDb ?: 0.0
+    if (p != null) {
+        val i = SweepAnalyzer.FREQUENCIES.indices.minByOrNull { kotlin.math.abs(SweepAnalyzer.FREQUENCIES[it] - p) } ?: 0
+        val values = curves.reversed().joinToString(" · ") { c -> String.format(java.util.Locale.ROOT, "%s %+.1f dB", c.label, c.db[i] - ref) }
+        androidx.compose.material3.Text(
+            "${se.johronski.subspeaker.audio.SignalSpec.fmt(p)} Hz: $values",
+            fontSize = 15.sp,
+        )
+    } else {
+        Muted("Tryck i diagrammet för att läsa av nivån vid en frekvens.")
+    }
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
+    ) {
+        curves.reversed().forEach { c ->
+            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp).androidxClip().androidxBg(c.color ?: Accent))
+                androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                androidx.compose.material3.Text(c.label + if (c.dashed) " (streckad)" else "", fontSize = 14.sp, color = InkMuted)
+            }
+        }
+    }
+    androidx.compose.material3.TextButton(onClick = { services.health.resetScale() }) { androidx.compose.material3.Text("Nollställ skala") }
+}

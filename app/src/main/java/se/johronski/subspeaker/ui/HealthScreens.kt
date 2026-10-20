@@ -477,6 +477,7 @@ private fun PhaseTuner(services: AppServices, s: HealthController.State) {
                 }
             }
         }
+        LiveCurveExpander(services, s, "Kurvan för varje fasläge sparas automatiskt, så att du kan jämföra dem.")
         BigButton(s.phaseBest?.let { "Klart – subben står på $it" } ?: "Klart", enabled = s.phaseBest != null) { services.health.finishTune() }
         Row {
             TextButton(onClick = { services.health.startPhaseGuide() }) { Text("Mät om") }
@@ -520,6 +521,7 @@ private fun LowpassTuner(services: AppServices, s: HealthController.State) {
             Sparkline(s.live.history.map { -it }, higherIsBetter = true)
             Muted("Streckad linje = bäst hittills. Vrider du för långt sjunker kurvan – vrid då tillbaka.")
         }
+        LiveCurveExpander(services, s, "Se hur övergången mellan sub och Genelec ändras medan du vrider.")
         BigButton("Klart") { services.health.finishTune() }
         VoiceToggle(services)
     }
@@ -567,6 +569,7 @@ private fun LevelTuner(services: AppServices, s: HealthController.State) {
                 Muted("för stark")
             }
         }
+        LiveCurveExpander(services, s, "Se hur djupbasen ändras mot Genelecens område medan du trycker.")
         BigButton("Klart") { services.health.finishTune() }
         VoiceToggle(services)
     }
@@ -670,4 +673,17 @@ private fun healthCurves(s: HealthController.State, after: Boolean): List<Explor
     }
     s.genelec?.let { add(ExplorerCurve("Genelec ensam", "det som hörs med MUTE på subben", it, SeriesColors[1], initiallyOn = !after)) }
     s.sub?.let { add(ExplorerCurve("Sub ensam", "det som hörs med Genelecerna avstängda", it, SeriesColors[2], initiallyOn = !after)) }
+}
+
+/** "Visa kurva ▾" i stämapparaten: den levande frekvenskurvan. */
+@Composable
+private fun LiveCurveExpander(services: AppServices, s: HealthController.State, hint: String) {
+    var open by remember { mutableStateOf(false) }
+    Panel {
+        TextButton(onClick = { open = !open }) { Text(if (open) "Dölj kurva ▴" else "Visa kurva ▾") }
+        if (open) {
+            Muted(hint)
+            LiveCurvePanel(services, s.live)
+        }
+    }
 }

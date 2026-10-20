@@ -113,6 +113,8 @@ fun AppScreen(services: AppServices) {
     var tool by rememberSaveable { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = tool != 0) { tool = 0 }
+    // Ett verktyg och hälsokollen kan inte mäta samtidigt.
+    LaunchedEffect(tool) { if (tool != 0) services.health.pauseAudio() }
     // 0 = stängd, 1 = ljud ut, 2 = mikrofon, 3 = båda
     var setupSection by remember { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
@@ -182,6 +184,7 @@ fun AppScreen(services: AppServices) {
         1 -> "Lyssna på toner"
         2 -> "Fri mätning"
         3 -> "Felsökning och export"
+        4 -> "Live-kurva"
         else -> ""
     }
 
@@ -238,6 +241,7 @@ fun AppScreen(services: AppServices) {
                                 onClick = { services.setVoice(!settings.voice) },
                             )
                             HorizontalDivider(color = Line)
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("Live-kurva") }, onClick = { menu = false; tool = 4 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Lyssna på toner") }, onClick = { menu = false; tool = 1 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Fri mätning") }, onClick = { menu = false; tool = 2 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Felsökning och export") }, onClick = { menu = false; tool = 3 })
@@ -270,6 +274,7 @@ fun AppScreen(services: AppServices) {
                 when (tool) {
                     1 -> ListenScreen(services, setup)
                     2 -> MeasureScreen(services, setup)
+                    4 -> LiveToolScreen(services, setup)
                     else -> TroubleshootScreen(services, setup)
                 }
                 Spacer(Modifier.height(24.dp))

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import se.johronski.subspeaker.audio.Diagnosis
+import se.johronski.subspeaker.audio.LiveSpectrum
 import se.johronski.subspeaker.audio.Multitone
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SignalSpec
@@ -44,7 +45,20 @@ class HealthController(private val services: AppServices, private val store: Sto
         val history: List<Double> = emptyList(),
         val balanceHistory: List<Double> = emptyList(),
         val listening: Boolean = false,
+        // Levande kurva
+        val curve: DoubleArray? = null,
+        val stable: Boolean = false,
+        /** Kurvan när stämapparaten eller verktyget startade, som jämförelse. */
+        val startCurve: DoubleArray? = null,
+        val snapshots: List<Snapshot> = emptyList(),
+        /** Låst nollnivå för diagrammet. */
+        val refDb: Double? = null,
+        val frozen: Boolean = false,
+        val speed: LiveSpectrum.Speed = LiveSpectrum.Speed.NORMAL,
     )
+
+    /** En sparad kurva att jämföra med. */
+    data class Snapshot(val label: String, val db: DoubleArray)
 
     data class State(
         val screen: Screen = Screen.START,
@@ -82,6 +96,8 @@ class HealthController(private val services: AppServices, private val store: Sto
         val warnings: Map<String, String> = emptyMap(),
         /** Sekunder sedan mätningen startade, för knappen "Visa det som hunnits mäta". */
         val elapsedS: Int = 0,
+        /** Verktyget "Live-kurva" i menyn är igång. */
+        val liveTool: Boolean = false,
     )
 
     private val _state = MutableStateFlow(load())
@@ -115,6 +131,100 @@ class HealthController(private val services: AppServices, private val store: Sto
             }
         }
         if (started && start != null) synchronized(spoken) { if (speechFrom == null) speechFrom = start }
+    }
+
+    private val spectrum = LiveSpectrum()
+
+    private fun ref(c: DoubleArray): Double =
+        SweepAnalyzer.FREQUENCIES.indices.filter { SweepAnalyzer.FREQUENCIES[it] in 80.0..125.0 }.map { c[it] }.average()
+
+    /** Uppdaterar den levande kurvan med de senaste 1,37 s. */
+    private fun updateLive(rec: SweepRecorder, dt: Double) {
+        val size = rec.size
+        val a = size - Multitone.FRAME
+        val skip = a < 0 || excluded().any { it.first <= size - 1 && it.last >= a }
+        if (!spectrum.update(rec.tail(Multitone.FRAME + 600), dt, skip)) return
+        val c = spectrum.curve ?: return
+        val stable = spectrum.stable
+        set {
+            if (it.live.frozen) {
+                it
+            } else {
+                it.copy(
+                    live = it.live.copy(
+                        curve = c,
+                        stable = stable,
+                        startCurve = it.live.startCurve ?: if (stable) c else null,
+                        refDb = it.live.refDb ?: ref(c),
+                    ),
+                )
+            }
+        }
+    }
+
+    fun setSpeed(sp: LiveSpectrum.Speed) {
+        spectrum.tauSeconds = sp.tau
+        set { it.copy(live = it.live.copy(speed = sp)) }
+    }
+
+    fun toggleFreeze() = set { it.copy(live = it.live.copy(frozen = !it.live.frozen)) }
+
+    fun resetScale() = set { s -> s.copy(live = s.live.copy(refDb = s.live.curve?.let { ref(it) })) }
+
+    /** Sparar nuvarande kurva som jämförelse (högst tre i verktyget). */
+    fun addSnapshot() = set { s ->
+        val c = s.live.curve ?: return@set s
+        val own = s.live.snapshots.filter { it.label.startsWith("Jämförelse") }
+        val n = (1..3).firstOrNull { i -> own.none { it.label == "Jämförelse $i" } } ?: return@set s
+        s.copy(live = s.live.copy(snapshots = s.live.snapshots + Snapshot("Jämförelse $n", c)))
+    }
+
+    fun clearSnapshots() = set { it.copy(live = it.live.copy(snapshots = emptyList())) }
+
+    private fun shifted(ex: List<IntRange>, base: Int): List<IntRange> =
+        ex.map { r -> (r.first - base).coerceAtLeast(0)..(if (r.last == Int.MAX_VALUE) Int.MAX_VALUE else r.last - base) }
+
+    // ---------- Verktyget Live-kurva ----------
+
+    fun startLiveTool() {
+        stopAll()
+        spectrum.reset()
+        val speed = _state.value.live.speed
+        spectrum.tauSeconds = speed.tau
+        set { it.copy(liveTool = true, live = Live(listening = true, speed = speed), error = null) }
+        job = scope.launch {
+            try {
+                val rec = startListening()
+                var last = System.currentTimeMillis()
+                while (isActive) {
+                    delay(300)
+                    rec.error?.let { throw IllegalStateException(it) }
+                    ensurePlaying()
+                    val now = System.currentTimeMillis()
+                    updateLive(rec, (now - last) / 1000.0)
+                    last = now
+                }
+            } catch (e: CancellationException) {
+                stopListening()
+            } catch (e: Exception) {
+                stopListening()
+                set { it.copy(error = e.message ?: e.javaClass.simpleName, live = it.live.copy(listening = false)) }
+            }
+        }
+    }
+
+    fun stopLiveTool() {
+        stopAll()
+        set { it.copy(liveTool = false) }
+    }
+
+    /** Stoppar ljud och mätning om hälsokollen är mitt i något, t.ex. när ett verktyg öppnas. */
+    fun pauseAudio() {
+        when (_state.value.screen) {
+            Screen.TUNE -> leaveTune()
+            Screen.CHECK, Screen.AFTER -> if (_state.value.measuring) cancel()
+            else -> {}
+        }
     }
 
     /** Intervall som mätningen ska bortse från just nu. */
@@ -285,10 +395,12 @@ class HealthController(private val services: AppServices, private val store: Sto
         stopAll()
         set {
             it.copy(
-                screen = Screen.TUNE, tune = action, live = Live(listening = true),
+                screen = Screen.TUNE, tune = action, live = Live(listening = true, speed = it.live.speed),
                 phaseResults = emptyMap(), phasePrompt = null, phaseBest = null, levelStart = null, error = null,
             )
         }
+        spectrum.reset()
+        spectrum.tauSeconds = _state.value.live.speed.tau
         job = scope.launch {
             try {
                 val rec = startListening()
@@ -299,17 +411,21 @@ class HealthController(private val services: AppServices, private val store: Sto
                 }
                 var lastFrames = 0
                 var lastWord: String? = null
+                var last = System.currentTimeMillis()
                 while (isActive) {
-                    delay(400)
+                    delay(300)
                     rec.error?.let { throw IllegalStateException(it) }
                     ensurePlaying()
+                    val now = System.currentTimeMillis()
+                    updateLive(rec, (now - last) / 1000.0)
+                    last = now
                     val size = rec.size
                     val frames = size / Multitone.FRAME
                     if (frames == lastFrames) continue
                     lastFrames = frames
-                    val data = rec.snapshot()
-                    val from = (data.size - 5 * Multitone.FRAME).coerceAtLeast(0)
-                    val r = Multitone.analyze(data, from, 3, excluded()) ?: continue
+                    val data = rec.tail(5 * Multitone.FRAME)
+                    val base = size - data.size
+                    val r = Multitone.analyze(data, 0, 3, shifted(excluded(), base)) ?: continue
                     val uneven = SweepAnalyzer.deviation(r.db)
                     val bal = SweepAnalyzer.balance(r.db)
                     set {
@@ -346,7 +462,12 @@ class HealthController(private val services: AppServices, private val store: Sto
     /** Guidar genom de fyra faslägena: säger vilket läge som ska tryckas, väntar och mäter. */
     fun startPhaseGuide() {
         phaseJob?.cancel()
-        set { it.copy(phaseResults = emptyMap(), phaseBest = null, phasePrompt = null) }
+        set {
+            it.copy(
+                phaseResults = emptyMap(), phaseBest = null, phasePrompt = null,
+                live = it.live.copy(snapshots = it.live.snapshots.filterNot { s -> s.label.startsWith("Fas ") }),
+            )
+        }
         phaseJob = scope.launch {
             try {
                 delay(3000)
@@ -364,7 +485,12 @@ class HealthController(private val services: AppServices, private val store: Sto
                     val data = rec.snapshot()
                     val r = Multitone.analyze(data, mark, 3, excluded())
                     if (r != null) results[ph] = SweepAnalyzer.deviation(r.db)
-                    set { it.copy(phaseResults = results.toMap()) }
+                    set {
+                        it.copy(
+                            phaseResults = results.toMap(),
+                            live = if (r != null) it.live.copy(snapshots = it.live.snapshots.filterNot { s -> s.label == "Fas $ph" } + Snapshot("Fas $ph", r.db)) else it.live,
+                        )
+                    }
                 }
                 val best = results.minByOrNull { it.value }?.key ?: return@launch
                 set { it.copy(phasePrompt = null, phaseBest = best) }
