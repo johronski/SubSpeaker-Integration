@@ -6,14 +6,14 @@ Byggd för Velodyne SPL-1200R + Genelec G Four med Chromecast Audio, men princip
 
 ## Status
 
-**v0.7.** Appen har fyra flikar:
+**v0.8 – hälsokoll och stämapparat.**
 
-- **Guide** – steg för steg: förberedelse med nivåkoll, mikrofonkoll, Genelecens basomkopplare, fas och subnivå. Resultatsidan visar vad du ska ställa in, som en lista att bocka av, och resultatet kan sparas för att jämföras senare.
-- **Lyssna** – testsignaler som spelas direkt vid tryck, dippsökning i 1/3–1/24 oktav, markerade dippar och mikrofonnivå.
-- **Mät** – fria svepmätningar med namn, t.ex. för att jämföra "normal" med "genelec ensam".
-- **Felsökning** – uppspelningsmetod, ljudkälla, servertest och rapport.
+1. **Kolla:** tryck *Kolla nu* och rör telefonen långsamt runt huvudet. Appen spelar ett periodiskt rosa brus och mäter tre gånger: allt tillsammans, Genelec ensam (MUTE på subben) och, om du vill, sub ensam (Genelecerna avstängda).
+2. **Diagnos:** fynden visas i ord, sorterade efter påverkan, med en förenklad baskurva. Appen skiljer på utsläckning mellan sub och Genelec, fel nivå, fel lågpass och hål som kommer från rummet.
+3. **Åtgärda:** varje fynd öppnar en stämapparat som visar live hur jämn basen är. För fasen säger appen vilket läge du ska trycka härnäst, mäter alla fyra och föreslår det bästa. Lågpass och nivå justeras med direkt besked som syns från rummet. Röstguiden kan läsa upp instruktionerna.
+4. **Klart:** en efterkontroll visar före och efter, och resultatet kan sparas.
 
-Raden överst visar uppspelning, mikrofon och volym och öppnar en panel för att ändra dem. Längst ner finns en fast spelare med Stopp, eller Avbryt under en mätning. Inställningar och mätningar sparas på telefonen, och appen ansluter automatiskt till senast använda Chromecast. Tryck i ett diagram för att lyssna på den frekvensen.
+Menyn uppe till höger har uppspelning, mikrofon och volym, röstguiden, samt verktygen Lyssna på toner, Fri mätning och Felsökning och export.
 
 ## Installera
 
