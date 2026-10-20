@@ -10,8 +10,22 @@ import se.johronski.subspeaker.audio.LocalPlayer
 import se.johronski.subspeaker.audio.MicMeter
 
 /** Sparar appens tillstånd på telefonen, så att inget försvinner om Android stänger appen. */
-class Store(context: Context) {
+class Store(private val context: Context) {
     private val prefs = context.getSharedPreferences("subspeaker", Context.MODE_PRIVATE)
+
+    /** Större data (mätningar med impulssvar) sparas som fil i stället för i inställningarna. */
+    fun writeFile(name: String, text: String) {
+        val f = java.io.File(context.filesDir, name)
+        val tmp = java.io.File(context.filesDir, "$name.tmp")
+        tmp.writeText(text)
+        if (!tmp.renameTo(f)) {
+            f.writeText(text)
+            tmp.delete()
+        }
+    }
+
+    fun readFile(name: String): String? =
+        java.io.File(context.filesDir, name).takeIf { it.exists() }?.readText()
 
     fun get(key: String): String? = prefs.getString(key, null)
 
@@ -26,6 +40,18 @@ class Store(context: Context) {
         fun strings(j: JSONArray?): List<String> = j?.let { List(it.length()) { i -> it.getString(i) } } ?: emptyList()
         fun ints(l: Collection<Int>): JSONArray = JSONArray().also { j -> l.forEach { j.put(it) } }
         fun ints(j: JSONArray?): List<Int> = j?.let { List(it.length()) { i -> it.getInt(i) } } ?: emptyList()
+
+        /** Float32, little endian, Base64 – kompakt och exakt. */
+        fun floatsBase64(a: FloatArray): String {
+            val bb = java.nio.ByteBuffer.allocate(a.size * 4).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            a.forEach { bb.putFloat(it) }
+            return java.util.Base64.getEncoder().encodeToString(bb.array())
+        }
+
+        fun floatsBase64(s: String): FloatArray {
+            val bb = java.nio.ByteBuffer.wrap(java.util.Base64.getDecoder().decode(s)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            return FloatArray(bb.remaining() / 4) { bb.getFloat() }
+        }
 
         /** Ett id för en ljudenhet som håller mellan omstarter (Androids eget id gör inte det). */
         fun deviceKey(d: AudioDeviceInfo): String {

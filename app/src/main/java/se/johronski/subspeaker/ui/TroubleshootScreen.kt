@@ -119,6 +119,11 @@ fun TroubleshootScreen(services: AppServices, setup: Setup) {
             context.startActivity(Intent.createChooser(send, "Dela rapport"))
         }) { Text("Dela rapport") }
         Muted("Rapporten innehåller alla mätningar och inställningar, som text.")
+        OutlinedButton(
+            onClick = { se.johronski.subspeaker.Export.share(context, services) },
+            enabled = sweep.curves.isNotEmpty() && !sweep.busy,
+        ) { Text("Exportera mätdata (fil)") }
+        Muted("Fullständig mätdata med impulssvar, för noggrann analys.")
         Label("Logg")
         cast.log.takeLast(12).forEach { Muted(it) }
     }

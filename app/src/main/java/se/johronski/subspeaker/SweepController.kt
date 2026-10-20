@@ -42,6 +42,15 @@ class SweepController(private val services: AppServices, private val store: Stor
         val task: String = group,
         /** Subbens faktiska volymsteg från utgångsläget, i nivåsteget. */
         val levelStep: Int? = null,
+        val id: String = java.util.UUID.randomUUID().toString(),
+        /** Fönstrat impulssvar per svep (3 kHz), för export och vidare analys. */
+        val irs: List<FloatArray> = emptyList(),
+        /** Varje impulssvars första sampel räknat från inspelningens start. */
+        val irStarts: List<Int> = emptyList(),
+        /** Chromecastens starttid per svep (ms), eller null vid uppspelning i telefonen. */
+        val latencies: List<Long?> = emptyList(),
+        /** "Chromecast" eller "Telefonen". */
+        val output: String = "",
     )
 
     data class Group(
@@ -104,6 +113,9 @@ class SweepController(private val services: AppServices, private val store: Stor
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
 
+    /** Skriver mätningarna till fil i tur och ordning, utanför huvudtråden. */
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     fun measure(
         label: String,
         stage: String = "free",
@@ -145,6 +157,7 @@ class SweepController(private val services: AppServices, private val store: Stor
                 }
 
                 val results = mutableListOf<SweepAnalyzer.Result>()
+                val latencies = mutableListOf<Long?>()
                 var device = ""
                 for (r in 1..repeats) {
                     val rec = SweepRecorder().also { recorder = it }
@@ -184,6 +197,7 @@ class SweepController(private val services: AppServices, private val store: Stor
                     device = rec.routedDevice ?: device
                     set { it.copy(status = "${prefix}Räknar …") }
                     results += SweepAnalyzer.analyze(data)
+                    latencies += if (useCast) services.cast.state.value.latencyMs else null
                     if (r < repeats) {
                         delay(1500)
                         elapsed += 1500
@@ -222,6 +236,10 @@ class SweepController(private val services: AppServices, private val store: Stor
                     repeatSpreadDb = spread,
                     task = if (micLabel != null) micLabel else task,
                     levelStep = levelStep,
+                    irs = results.map { it.ir },
+                    irStarts = results.map { it.irStart },
+                    latencies = latencies,
+                    output = settings.output.label,
                 )
                 val warn = when {
                     snr < 15 -> "Svag signal mot bruset (${snr.toInt()} dB). Höj volymen eller minska störningar och mät om."
@@ -296,51 +314,65 @@ class SweepController(private val services: AppServices, private val store: Stor
     private fun save() {
         val s = _state.value
         val arr = JSONArray()
-        s.curves.forEach { c ->
-            arr.put(
-                JSONObject()
-                    .put("label", c.label).put("stage", c.stage).put("group", c.group).put("task", c.task)
-                    .put("position", c.position).put("time", c.time).put("db", Store.doubles(c.db))
-                    .put("delay", c.delaySeconds).put("snr", c.snrDb).put("device", c.device)
-                    .put("spread", c.repeatSpreadDb ?: JSONObject.NULL)
-                    .put("levelStep", c.levelStep ?: JSONObject.NULL),
-            )
-        }
-        store.put(KEY, JSONObject().put("curves", arr).put("delay", s.delaySeconds).put("repeats", s.repeats).toString())
+        s.curves.forEach { arr.put(toJson(it)) }
+        val text = JSONObject().put("curves", arr).put("delay", s.delaySeconds).put("repeats", s.repeats).toString()
+        io.execute { store.writeFile(FILE, text) }
     }
 
     private fun load(): State {
-        val raw = store.get(KEY) ?: return State()
+        val raw = store.readFile(FILE) ?: store.get(KEY) ?: return State()
         return try {
             val j = JSONObject(raw)
             val arr = j.optJSONArray("curves") ?: JSONArray()
-            val n = SweepAnalyzer.FREQUENCIES.size
-            val curves = (0 until arr.length()).mapNotNull { i ->
-                val o = arr.getJSONObject(i)
-                val db = Store.doubles(o.optJSONArray("db"))?.takeIf { it.size == n } ?: return@mapNotNull null
-                val group = o.getString("group")
-                Curve(
-                    label = o.getString("label"),
-                    stage = o.getString("stage"),
-                    group = group,
-                    position = o.optInt("position"),
-                    time = o.optString("time"),
-                    db = db,
-                    delaySeconds = o.optDouble("delay", 0.0),
-                    snrDb = o.optDouble("snr", 0.0),
-                    device = o.optString("device"),
-                    repeatSpreadDb = if (o.isNull("spread")) null else o.optDouble("spread"),
-                    task = o.optString("task").ifBlank { group },
-                    levelStep = if (o.isNull("levelStep") || !o.has("levelStep")) null else o.optInt("levelStep"),
-                )
-            }
+            val curves = (0 until arr.length()).mapNotNull { fromJson(arr.getJSONObject(it)) }
             State(curves = curves, delaySeconds = j.optInt("delay", 10), repeats = j.optInt("repeats", 1))
         } catch (e: Exception) {
             State()
         }
     }
 
-    private companion object {
-        const val KEY = "sweep"
+    companion object {
+        private const val KEY = "sweep"
+        private const val FILE = "sweep.json"
+
+        fun toJson(c: Curve): JSONObject =
+            JSONObject()
+                .put("id", c.id)
+                .put("label", c.label).put("stage", c.stage).put("group", c.group).put("task", c.task)
+                .put("position", c.position).put("time", c.time).put("db", Store.doubles(c.db))
+                .put("delay", c.delaySeconds).put("snr", c.snrDb).put("device", c.device)
+                .put("spread", c.repeatSpreadDb ?: JSONObject.NULL)
+                .put("levelStep", c.levelStep ?: JSONObject.NULL)
+                .put("output", c.output)
+                .put("irs", JSONArray().also { a -> c.irs.forEach { a.put(Store.floatsBase64(it)) } })
+                .put("irStarts", Store.ints(c.irStarts))
+                .put("latencies", JSONArray().also { a -> c.latencies.forEach { a.put(it ?: JSONObject.NULL) } })
+
+        fun fromJson(o: JSONObject): Curve? {
+            val n = SweepAnalyzer.FREQUENCIES.size
+            val db = Store.doubles(o.optJSONArray("db"))?.takeIf { it.size == n } ?: return null
+            val group = o.getString("group")
+            val irsJ = o.optJSONArray("irs")
+            val latJ = o.optJSONArray("latencies")
+            return Curve(
+                label = o.getString("label"),
+                stage = o.getString("stage"),
+                group = group,
+                position = o.optInt("position"),
+                time = o.optString("time"),
+                db = db,
+                delaySeconds = o.optDouble("delay", 0.0),
+                snrDb = o.optDouble("snr", 0.0),
+                device = o.optString("device"),
+                repeatSpreadDb = if (o.isNull("spread")) null else o.optDouble("spread"),
+                task = o.optString("task").ifBlank { group },
+                levelStep = if (o.isNull("levelStep")) null else o.optInt("levelStep"),
+                id = o.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+                irs = irsJ?.let { a -> (0 until a.length()).map { Store.floatsBase64(a.getString(it)) } } ?: emptyList(),
+                irStarts = Store.ints(o.optJSONArray("irStarts")),
+                latencies = latJ?.let { a -> (0 until a.length()).map { if (a.isNull(it)) null else a.getLong(it) } } ?: emptyList(),
+                output = o.optString("output"),
+            )
+        }
     }
 }

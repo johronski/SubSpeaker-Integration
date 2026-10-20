@@ -38,7 +38,7 @@ fun MeasureScreen(services: AppServices, setup: Setup) {
         )
         Label("Namn på mätningen")
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("normal", "genelec ensam", "fas 0", "fas 90", "fas 180", "fas 270").forEach { l ->
+            listOf("normal", "genelec ensam", "sub ensam", "fas 0", "fas 90", "fas 180", "fas 270").forEach { l ->
                 FilterChip(selected = label == l, onClick = { label = l }, label = { Text(l) })
             }
         }
@@ -89,13 +89,22 @@ fun MeasureScreen(services: AppServices, setup: Setup) {
         }
     }
 
-    Panel("Dippen vid 120 Hz: sub eller rum?") {
+    Panel("Sub och Genelec var för sig") {
+        Muted("Mät alla tre på exakt samma plats – markera gärna mikrofonens plats med tejp. Två svep per mätning ger säkrare data.")
         NumberedStep("1", "Mät med namnet \"normal\".")
-        NumberedStep("2", "Tryck MUTE på Velodynens fjärrkontroll och kontrollera att Genelecen fortfarande spelar.")
-        NumberedStep("3", "Mät på exakt samma plats med namnet \"genelec ensam\". Slå av MUTE efteråt.")
+        NumberedStep("2", "Tryck MUTE på Velodynens fjärrkontroll. Mät \"genelec ensam\".")
+        NumberedStep("3", "Slå av MUTE. Stäng av båda Genelecerna. Mät \"sub ensam\". Slå på Genelecerna igen.")
+        NumberedStep("4", "Tryck Exportera mätdata och skicka filen.")
         Muted(
-            "Finns dippen kvar med Genelec ensam beror den på rummet eller placeringen. " +
-                "Försvinner den tar sub och Genelec ut varandra – prova då ett lägre lågpass på subben.",
+            "Finns dippen vid 120 Hz kvar med Genelec ensam beror den på rummet eller placeringen. " +
+                "Försvinner den tar sub och Genelec ut varandra där.",
         )
+        val context = androidx.compose.ui.platform.LocalContext.current
+        Button(
+            onClick = { se.johronski.subspeaker.Export.share(context, services) },
+            enabled = sweep.curves.isNotEmpty() && !sweep.busy,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) { Text("Exportera mätdata") }
+        Muted("Filen innehåller alla mätningar, även guidens, med impulssvar och tidsinformation.")
     }
 }

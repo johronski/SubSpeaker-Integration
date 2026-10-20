@@ -98,4 +98,17 @@ class SweepTest {
         assertEquals(0.0, mean, 1e-9)
         assertEquals(0.0, sd, 1e-9)
     }
+
+    @Test
+    fun exportedImpulseResponseIsConsistent() {
+        val r = SweepAnalyzer.analyze(simulate(2.5, 0.5, null))
+        // Impulssvaret ligger runt fördröjningen och toppen sitter 50 ms in i fönstret.
+        assertTrue(r.ir.size > SweepAnalyzer.FS / 2)
+        val peakIdx = r.ir.indices.maxByOrNull { kotlin.math.abs(r.ir[it]) }!!
+        assertEquals((0.05 * SweepAnalyzer.FS).toInt().toDouble(), peakIdx.toDouble(), 2.0)
+        assertEquals(r.delaySeconds, (r.irStart + peakIdx).toDouble() / SweepAnalyzer.FS, 1.0 / SweepAnalyzer.FS)
+        // Base64-kodningen är exakt.
+        val back = se.johronski.subspeaker.Store.floatsBase64(se.johronski.subspeaker.Store.floatsBase64(r.ir))
+        assertTrue(back.contentEquals(r.ir))
+    }
 }
