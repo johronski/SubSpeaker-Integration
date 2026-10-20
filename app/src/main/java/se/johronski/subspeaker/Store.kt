@@ -77,6 +77,8 @@ data class Settings(
     val outKey: String? = null,
     val localGain: Float = 0.3f,
     val allowHighVolume: Boolean = false,
+    /** Läs upp instruktioner i hälsokollen. */
+    val voice: Boolean = true,
 )
 
 class SettingsStore(private val store: Store) {
@@ -102,6 +104,7 @@ class SettingsStore(private val store: Store) {
                 outKey = j.optString("outKey").ifBlank { null },
                 localGain = j.optDouble("localGain", 0.3).toFloat(),
                 allowHighVolume = j.optBoolean("allowHighVolume", false),
+                voice = j.optBoolean("voice", true),
             )
         } catch (e: Exception) {
             Settings()
@@ -118,6 +121,7 @@ class SettingsStore(private val store: Store) {
             .put("outKey", s.outKey ?: "")
             .put("localGain", s.localGain.toDouble())
             .put("allowHighVolume", s.allowHighVolume)
+            .put("voice", s.voice)
         store.put(KEY, j.toString())
     }
 

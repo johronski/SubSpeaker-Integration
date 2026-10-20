@@ -74,6 +74,15 @@ sealed class SignalSpec {
         }
     }
 
+    /** Periodiskt rosa brus (multiton) för hälsokoll och stämapparat. */
+    data class Noise(override val seconds: Double = 60.0) : SignalSpec() {
+        override val dbfs: Double get() = Multitone.PEAK_DBFS
+        override val label: String get() = "Mätbrus (${seconds.toInt()} s)"
+        override val measureFrequency: Double? get() = null
+        override val path: String get() = "noise/${fmt(seconds)}.wav"
+        override fun render(): FloatArray = Multitone.render(seconds)
+    }
+
     companion object {
         fun fmt(v: Double): String =
             if (v == Math.floor(v)) v.toLong().toString() else String.format(Locale.ROOT, "%.1f", v)
@@ -101,6 +110,12 @@ sealed class SignalSpec {
                         if (f1 !in 10.0..1000.0 || f2 !in 10.0..1000.0 || f1 == f2) return null
                         if (s !in 1.0..120.0 || db !in -60.0..-3.0) return null
                         Sweep(f1, f2, s, db)
+                    }
+                    "noise" -> {
+                        if (p.size != 2) return null
+                        val sec = p[1].toDouble()
+                        if (sec !in 5.0..120.0) return null
+                        Noise(sec)
                     }
                     "steps" -> {
                         if (p.size != 3) return null

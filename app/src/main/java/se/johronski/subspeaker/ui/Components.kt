@@ -30,7 +30,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import se.johronski.subspeaker.AppServices
 import se.johronski.subspeaker.audio.Decision
+import se.johronski.subspeaker.audio.SignalSpec
+import se.johronski.subspeaker.audio.ToneGrid
 import java.util.Locale
 
 /** Ljust kort med tunn kant, utan skugga. */
@@ -173,3 +181,27 @@ fun NumberedStep(id: String, text: String) {
         Text(text, fontSize = 15.sp, lineHeight = 21.sp)
     }
 }
+
+/** Diagram med tryckbar förklaring. Tryck i diagrammet spelar tonen vid den frekvensen. */
+@Composable
+fun ChartWithLegend(services: AppServices, curves: List<ChartCurve>, legend: List<String>, best: Int?) {
+    val playback by services.playback.state.collectAsState()
+    val cast by services.cast.state.collectAsState()
+    val local by services.local.state.collectAsState()
+    val settings by services.settings.state.collectAsState()
+    var picked by remember(curves.size) { mutableStateOf<Int?>(null) }
+    val playing = if (settings.output == se.johronski.subspeaker.Output.PHONE) local.playing else cast.playerState in setOf("Spelar", "Buffrar")
+    val cursor = (playback.spec as? SignalSpec.Tone)?.takeIf { playing }?.freq
+    SweepChart(
+        curves,
+        highlight = picked ?: best,
+        markers = playback.markers,
+        cursor = cursor,
+        onTap = { f -> services.playback.playTone(ToneGrid.snap(f, 24)) },
+    )
+    Muted("Tryck i diagrammet för att lyssna på den frekvensen. + och − längst ner stegar tonen.")
+    legend.forEachIndexed { i, text ->
+        LegendRow(i, text, selected = (picked ?: best) == i) { picked = if (picked == i) null else i }
+    }
+}
+

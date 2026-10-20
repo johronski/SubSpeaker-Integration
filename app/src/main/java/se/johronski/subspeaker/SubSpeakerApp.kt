@@ -52,6 +52,8 @@ class AppServices(private val context: Context) {
     val sweep = SweepController(this, store)
     val guide = GuideController(store)
     val playback = PlaybackController(this, store)
+    val speaker = Speaker(context)
+    val health = HealthController(this, store, speaker)
 
     private val _serverError = MutableStateFlow<String?>(null)
     val serverError: StateFlow<String?> = _serverError
@@ -67,6 +69,7 @@ class AppServices(private val context: Context) {
 
     init {
         local.gain = settings.value.localGain
+        speaker.enabled = settings.value.voice
         cast.preferredName = settings.value.castName
         cast.onConnected = { name -> settings.update { it.copy(castName = name) } }
         Thread {
@@ -129,6 +132,11 @@ class AppServices(private val context: Context) {
     fun setLocalGain(g: Float) {
         local.gain = g
         settings.update { it.copy(localGain = g) }
+    }
+
+    fun setVoice(on: Boolean) {
+        speaker.enabled = on
+        settings.update { it.copy(voice = on) }
     }
 
     fun forgetCast() {

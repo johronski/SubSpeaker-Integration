@@ -60,6 +60,19 @@ object Export {
                     .put("frequencies", Store.doubles(SweepAnalyzer.FREQUENCIES)),
             )
             .put("markers", Store.doubles(services.playback.state.value.markers.toDoubleArray()))
+            .put(
+                "healthCheck",
+                services.health.state.value.let { h ->
+                    JSONObject()
+                        .put("method", "periodic pink multitone, moving microphone, 1/6 octave, power average over frames")
+                        .put("together", h.together?.let { Store.doubles(it) } ?: JSONObject.NULL)
+                        .put("genelecAlone", h.genelec?.let { Store.doubles(it) } ?: JSONObject.NULL)
+                        .put("subAlone", h.sub?.let { Store.doubles(it) } ?: JSONObject.NULL)
+                        .put("after", h.after?.let { Store.doubles(it) } ?: JSONObject.NULL)
+                        .put("changes", Store.strings(h.changes))
+                        .put("findings", JSONArray().also { a -> h.report?.findings?.forEach { f -> a.put(f.title) } })
+                },
+            )
             .put("curves", JSONArray().also { a -> sweep.curves.forEach { a.put(SweepController.toJson(it)) } })
     }
 

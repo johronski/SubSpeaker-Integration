@@ -92,8 +92,8 @@ class Setup(
 ) {
     val problem: String?
         get() = when {
-            !hasMicPermission -> "Appen behöver tillgång till mikrofonen. Tryck på raden ovan."
-            playName.isBlank() -> "Välj din Chromecast – tryck på raden ovan."
+            !hasMicPermission -> "Appen behöver tillgång till mikrofonen. Tryck här."
+            playName.isBlank() -> "Välj din Chromecast – tryck på raden överst."
             else -> null
         }
     val canMeasure: Boolean get() = problem == null
@@ -109,7 +109,9 @@ fun AppScreen(services: AppServices) {
     val playback by services.playback.state.collectAsState()
     val mic by services.mic.state.collectAsState()
 
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tool by rememberSaveable { mutableIntStateOf(0) }
+    var menu by remember { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = tool != 0) { tool = 0 }
     var showSetup by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
@@ -152,65 +154,108 @@ fun AppScreen(services: AppServices) {
 
     val playing = if (settings.output == Output.PHONE) local.playing else cast.playerState in setOf("Spelar", "Buffrar")
 
+    val playText = when {
+        settings.output == Output.PHONE -> "Telefonen"
+        cast.connected -> cast.deviceName.orEmpty()
+        cast.connecting -> "Ansluter …"
+        else -> "Välj Chromecast"
+    }
+    val playOk = settings.output == Output.PHONE || cast.connected
+    val volText = if (settings.output == Output.CAST) cast.volume?.let { " · ${(it * 100).toInt()} %" } ?: "" else ""
+    val toolTitle = when (tool) {
+        1 -> "Lyssna på toner"
+        2 -> "Fri mätning"
+        3 -> "Felsökning och export"
+        else -> ""
+    }
+
     Scaffold(
         containerColor = Paper,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column(Modifier.background(Paper).statusBarsPadding()) {
-                Text(
-                    "SubSpeaker",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Ink,
-                    modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp),
-                )
-                TabRow(
-                    selectedTabIndex = tab,
-                    containerColor = Paper,
-                    contentColor = Ink,
-                    indicator = { pos ->
-                        TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(pos[tab]), color = Accent)
-                    },
-                    divider = { HorizontalDivider(color = Line) },
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 4.dp),
                 ) {
-                    tabs.forEachIndexed { i, t ->
-                        Tab(
-                            selected = tab == i,
-                            onClick = { tab = i },
-                            text = {
-                                Text(
-                                    t,
-                                    fontSize = 15.sp,
-                                    fontWeight = if (tab == i) FontWeight.Medium else FontWeight.Normal,
-                                    color = if (tab == i) Ink else InkMuted,
-                                    maxLines = 1,
-                                )
-                            },
+                    if (tool != 0) {
+                        androidx.compose.material3.TextButton(onClick = { tool = 0 }) { Text("‹ Hälsokoll", fontSize = 15.sp) }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { showSetup = true }
+                            .padding(horizontal = 8.dp, vertical = 12.dp),
+                    ) {
+                        Spacer(Modifier.size(7.dp).clip(CircleShape).background(if (playOk) Good else Warn))
+                        Spacer(Modifier.width(8.dp))
+                        Text(playText, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(" · ", fontSize = 14.sp, color = Line)
+                        Spacer(Modifier.size(7.dp).clip(CircleShape).background(if (hasMicPermission) Good else Warn))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            (if (hasMicPermission) micName.substringBefore(" (") else "Mikrofon") + volText,
+                            fontSize = 14.sp, color = InkMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    androidx.compose.foundation.layout.Box {
+                        androidx.compose.material3.IconButton(onClick = { menu = true }) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                repeat(3) { Spacer(Modifier.width(20.dp).height(2.dp).background(Ink)) }
+                            }
+                        }
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = menu,
+                            onDismissRequest = { menu = false },
+                            containerColor = CardColor,
+                        ) {
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Uppspelning, mikrofon och volym") },
+                                onClick = { menu = false; showSetup = true },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text(if (settings.voice) "Röstguide: på" else "Röstguide: av") },
+                                onClick = { services.setVoice(!settings.voice) },
+                            )
+                            HorizontalDivider(color = Line)
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("Lyssna på toner") }, onClick = { menu = false; tool = 1 })
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("Fri mätning") }, onClick = { menu = false; tool = 2 })
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("Felsökning och export") }, onClick = { menu = false; tool = 3 })
+                        }
+                    }
                 }
-                SetupBar(setup, settings.output, cast.connected, cast.connecting, cast.volume, settings.localGain) { showSetup = true }
+                if (tool != 0) {
+                    Text(toolTitle, fontSize = 22.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+                }
+                HorizontalDivider(color = Line)
             }
         },
         bottomBar = {
-            BottomPlayer(services, playing)
+            if (tool != 0) BottomPlayer(services, playing)
         },
     ) { inner ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(inner)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            when (tab) {
-                0 -> GuideScreen(services, setup)
-                1 -> ListenScreen(services, setup)
-                2 -> MeasureScreen(services, setup)
-                else -> TroubleshootScreen(services, setup)
+        if (tool == 0) {
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(inner)) {
+                HealthFlow(services, setup)
             }
-            Spacer(Modifier.height(24.dp))
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(inner)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                when (tool) {
+                    1 -> ListenScreen(services, setup)
+                    2 -> MeasureScreen(services, setup)
+                    else -> TroubleshootScreen(services, setup)
+                }
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 

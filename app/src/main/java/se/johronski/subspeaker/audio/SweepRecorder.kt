@@ -31,7 +31,7 @@ class SweepRecorder {
     fun start(source: MicMeter.Source, device: AudioDeviceInfo?) {
         stop()
         error = null
-        count = 0
+        synchronized(lock) { count = 0 }
         val sr = SignalGenerator.SAMPLE_RATE
         val minBuf = AudioRecord.getMinBufferSize(sr, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuf <= 0) throw IllegalStateException("Telefonen stöder inte inspelning i 48 kHz")
@@ -70,8 +70,10 @@ class SweepRecorder {
                     if (n <= 0) continue
                     for (i in 0 until n) {
                         val y = dec.push(buf[i] / 32768.0) ?: continue
-                        if (count >= buffer.size) buffer = buffer.copyOf(buffer.size * 2)
-                        buffer[count++] = y.toFloat()
+                        synchronized(lock) {
+                            if (count >= buffer.size) buffer = buffer.copyOf(buffer.size * 2)
+                            buffer[count++] = y.toFloat()
+                        }
                     }
                     if (routedDevice == null) routedDevice = rec.routedDevice?.let { MicMeter.describe(it) }
                 }
@@ -85,11 +87,19 @@ class SweepRecorder {
         }, "SweepRecorder").also { it.start() }
     }
 
+    private val lock = Any()
+
+    /** Antal nedsamplade sampel hittills. */
+    val size: Int get() = synchronized(lock) { count }
+
+    /** Kopia av inspelningen hittills, medan den pågår. */
+    fun snapshot(): FloatArray = synchronized(lock) { buffer.copyOf(count) }
+
     /** Stoppar och returnerar den nedsamplade inspelningen. */
     fun stop(): FloatArray {
         running = false
         thread?.join(2000)
         thread = null
-        return buffer.copyOf(count)
+        return synchronized(lock) { buffer.copyOf(count) }
     }
 }

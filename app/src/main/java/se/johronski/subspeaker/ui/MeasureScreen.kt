@@ -102,7 +102,7 @@ fun MeasureScreen(services: AppServices, setup: Setup) {
         val context = androidx.compose.ui.platform.LocalContext.current
         Button(
             onClick = { se.johronski.subspeaker.Export.share(context, services) },
-            enabled = sweep.curves.isNotEmpty() && !sweep.busy,
+            enabled = !sweep.busy,
             modifier = Modifier.fillMaxWidth().height(52.dp),
         ) { Text("Exportera mätdata") }
         Muted("Filen innehåller alla mätningar, även guidens, med impulssvar och tidsinformation.")

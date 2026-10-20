@@ -96,9 +96,9 @@ fun TroubleshootScreen(services: AppServices, setup: Setup) {
     }
 
     Panel("Testplan vid problem") {
-        NumberedStep("A", "Spela 90 Hz ren ton under Lyssna på låg volym. Hörs den i både subben och Genelecen?")
-        NumberedStep("B", "Starta mikrofonen under Lyssna. Är nivån stabil? Spara som \"inbyggd\".")
-        NumberedStep("C", "Koppla in en annan mikrofon, välj den i raden överst och spara igen. Jämför nivåerna.")
+        NumberedStep("A", "Spela 90 Hz ren ton under Lyssna på toner (menyn) på låg volym. Hörs den i både subben och Genelecen?")
+        NumberedStep("B", "Starta mikrofonen under Lyssna på toner. Är nivån stabil? Spara som \"inbyggd\".")
+        NumberedStep("C", "Koppla in en annan mikrofon, välj den via raden överst och spara igen. Jämför nivåerna.")
         NumberedStep("D", "Prova ljudkällorna ovan med samma mikrofon. Notera vilken som ger stabilast nivå.")
         NumberedStep("E", "Mute-test: spara en avläsning, tryck MUTE på fjärrkontrollen och spara igen. Tystnar även Genelecen?")
         NumberedStep("F", "Tryck Dela rapport nedan och skicka den.")
@@ -121,7 +121,7 @@ fun TroubleshootScreen(services: AppServices, setup: Setup) {
         Muted("Rapporten innehåller alla mätningar och inställningar, som text.")
         OutlinedButton(
             onClick = { se.johronski.subspeaker.Export.share(context, services) },
-            enabled = sweep.curves.isNotEmpty() && !sweep.busy,
+            enabled = !sweep.busy,
         ) { Text("Exportera mätdata (fil)") }
         Muted("Fullständig mätdata med impulssvar, för noggrann analys.")
         Label("Logg")
