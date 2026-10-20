@@ -39,6 +39,8 @@ public class CastClient {
         default void onVolume(double level) { }
         /** What the speaker's player has loaded: the stream address and its title. */
         default void onMedia(String url, String title) { }
+        /** Om högtalarens ljud är avstängt (mute), när den rapporterar det. */
+        default void onMuted(boolean muted) { }
         /** Uppspelningsposition i sekunder, när högtalaren rapporterar den. */
         default void onPosition(double seconds) { }
     }
@@ -262,6 +264,12 @@ public class CastClient {
                 + requestId.getAndIncrement() + "}");
     }
 
+    /** Slår av eller på högtalarens ljudavstängning (mute). */
+    public void setMuted(boolean muted) throws IOException {
+        send(SENDER, RECEIVER, NS_RECEIVER, "{\"type\":\"SET_VOLUME\",\"volume\":{\"muted\":" + muted
+                + "},\"requestId\":" + requestId.getAndIncrement() + "}");
+    }
+
     public void close() {
         running = false;
         try { if (socket != null) socket.close(); } catch (IOException ignored) { }
@@ -336,6 +344,8 @@ public class CastClient {
             if (vol.find()) {
                 try { listener.onVolume(Double.parseDouble(vol.group(1))); } catch (NumberFormatException ignored) { }
             }
+            Matcher mute = Pattern.compile("\"volume\"\\s*:\\s*\\{[^}]*\"muted\"\\s*:\\s*(true|false)").matcher(m.payload);
+            if (mute.find()) listener.onMuted("true".equals(mute.group(1)));
             String app = appObject(m.payload, DEFAULT_MEDIA_RECEIVER);
             if (app != null) {
                 otherAppRunning = false;

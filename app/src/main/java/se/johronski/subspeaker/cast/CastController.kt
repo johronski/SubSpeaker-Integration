@@ -31,6 +31,8 @@ class CastController(context: Context) {
         val deviceName: String? = null,
         val deviceModel: String? = null,
         val volume: Double? = null,
+        /** Högtalarens ljud är avstängt (mute). */
+        val muted: Boolean = false,
         val playerState: String = "–",
         val title: String? = null,
         val positionMs: Long = 0,
@@ -75,6 +77,13 @@ class CastController(context: Context) {
     @Volatile
     private var autoTried = false
 
+    /** Uppspelning som väntar på att anslutningen ska bli klar. */
+    private var pending: Triple<String, String, Long>? = null
+
+    /** Antal omstarter av den aktuella uppspelningen. */
+    private var retries = 0
+    private var lastPlay: Triple<String, String, Long>? = null
+
     @Volatile
     private var client: CastClient? = null
 
@@ -112,7 +121,13 @@ class CastController(context: Context) {
                 )
                 log("Ansluten till ${device.name}")
                 preferredName = device.name
-                main.post { onConnected?.invoke(device.name) }
+                main.post {
+                    onConnected?.invoke(device.name)
+                    pending?.let { (url, title, dur) ->
+                        pending = null
+                        play(url, title, dur)
+                    }
+                }
             } catch (e: Exception) {
                 c.close()
                 client = null
@@ -129,16 +144,28 @@ class CastController(context: Context) {
             c.close()
         }
         client = null
+        pending = null
         _state.value = _state.value.copy(connected = false, deviceName = null, deviceModel = null, playerState = "–")
         log("Frånkopplad")
     }
 
-    fun play(url: String, title: String, durationMs: Long) {
+    fun play(url: String, title: String, durationMs: Long, retry: Boolean = false) {
         val c = client
         if (c == null) {
-            log("Inte ansluten till någon Chromecast")
+            // Förbindelsen har brutits: anslut igen till samma Chromecast och spela sedan.
+            val d = _state.value.devices.firstOrNull { it.name == preferredName }
+            if (d != null) {
+                log("Inte ansluten – ansluter igen till ${d.name}")
+                pending = Triple(url, title, durationMs)
+                if (!_state.value.connecting) connect(d)
+            } else {
+                log("Inte ansluten till någon Chromecast")
+                _state.value = _state.value.copy(lastError = "Chromecasten är inte ansluten. Välj den igen.")
+            }
             return
         }
+        if (!retry) retries = 0
+        lastPlay = Triple(url, title, durationMs)
         loadStartedAt = SystemClock.elapsedRealtime()
         waitingForPlay = true
         _state.value = _state.value.copy(
@@ -148,8 +175,24 @@ class CastController(context: Context) {
         log("Laddar: $title")
         io.execute {
             try {
+                if (_state.value.muted) {
+                    log("Ljudet var avstängt på Chromecasten – slår på")
+                    c.setMuted(false)
+                }
                 c.play(url, title, "audio/wav", "BUFFERED")
                 pollPosition()
+                // Vakt: om uppspelningen inte startat inom 12 s, försök en gång till.
+                main.postDelayed({
+                    if (waitingForPlay && client === c && retries < 1) {
+                        retries++
+                        log("Uppspelningen startade inte – försöker igen")
+                        lastPlay?.let { (u, t, d) -> play(u, t, d, retry = true) }
+                    } else if (waitingForPlay && client === c) {
+                        waitingForPlay = false
+                        _state.value = _state.value.copy(lastError = "Chromecasten startade inte uppspelningen. Kontrollera att den är på och försök igen.")
+                        log("Uppspelningen startade inte")
+                    }
+                }, 12_000)
             } catch (e: Exception) {
                 waitingForPlay = false
                 _state.value = _state.value.copy(lastError = "Uppspelning misslyckades: ${e.message}")
@@ -197,6 +240,18 @@ class CastController(context: Context) {
             client = null
             _state.value = _state.value.copy(connected = false, playerState = "–")
             log(reason)
+            // Försök ansluta igen när enheten hittas, och direkt om den redan finns i listan.
+            autoTried = false
+            main.postDelayed({
+                val st = _state.value
+                if (!st.connected && !st.connecting) {
+                    st.devices.firstOrNull { it.name == preferredName }?.let { d ->
+                        autoTried = true
+                        log("Ansluter igen till ${d.name}")
+                        connect(d)
+                    }
+                }
+            }, 2000)
         }
 
         override fun onPlayerState(state: String) {
@@ -219,6 +274,10 @@ class CastController(context: Context) {
             } else {
                 _state.value.copy(playerState = name, latencyMs = latency)
             }
+        }
+
+        override fun onMuted(muted: Boolean) {
+            _state.value = _state.value.copy(muted = muted)
         }
 
         override fun onVolume(level: Double) {

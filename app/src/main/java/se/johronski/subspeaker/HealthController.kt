@@ -288,12 +288,25 @@ class HealthController(private val services: AppServices, private val store: Sto
                 val started = System.currentTimeMillis()
                 var result: Multitone.Result? = null
                 var timedOut = false
+                var restarted = false
                 while (isActive) {
                     delay(500)
                     rec.error?.let { throw IllegalStateException(it) }
                     val data = rec.snapshot()
                     val r = Multitone.analyze(data, exclude = excluded())
                     val frames = r?.frames ?: 0
+                    val sinceStart = (System.currentTimeMillis() - started) / 1000
+                    // Uppspelningsfel från Chromecasten eller telefonen visas direkt.
+                    if (frames == 0 && sinceStart >= 3) {
+                        val err = if (services.settings.value.output == Output.CAST) services.cast.state.value.lastError else services.local.state.value.error
+                        err?.let { throw IllegalStateException(it) }
+                    }
+                    // Hörs inget mätljud efter 12 s: starta uppspelningen en gång till.
+                    if (frames == 0 && sinceStart >= 12 && !restarted) {
+                        restarted = true
+                        set { it.copy(status = "Startar om mätljudet …") }
+                        play()
+                    }
                     val left = ((needed - frames).coerceAtLeast(0) * Multitone.FRAME / SweepAnalyzer.FS.toDouble()).toInt() + 1
                     val ok = r?.snrDb?.let { it >= 20 }
                     val elapsed = ((System.currentTimeMillis() - started) / 1000).toInt()

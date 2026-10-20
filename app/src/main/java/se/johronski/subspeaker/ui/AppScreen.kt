@@ -174,9 +174,9 @@ fun AppScreen(services: AppServices) {
         cast.connecting -> "Ansluter …"
         else -> "Välj Chromecast"
     }
-    val playOk = settings.output == Output.PHONE || cast.connected
+    val playOk = settings.output == Output.PHONE || (cast.connected && !cast.muted)
     val volText = if (settings.output == Output.CAST) {
-        cast.volume?.let { "${(it * 100).toInt()} %" } ?: ""
+        if (cast.muted) "ljud av" else cast.volume?.let { "${(it * 100).toInt()} %" } ?: ""
     } else {
         "${(settings.localGain * 100).toInt()} %"
     }
