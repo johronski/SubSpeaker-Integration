@@ -106,7 +106,13 @@ object Multitone {
      * Chromecasten startar om) och ramarna på var sida om ett glapp sorteras bort.
      * Den sista ramen används inte heller, eftersom den kan vara ofullständig.
      */
-    fun analyze(rec: FloatArray, from: Int = 0, maxFrames: Int = Int.MAX_VALUE): Result? {
+    fun analyze(
+        rec: FloatArray,
+        from: Int = 0,
+        maxFrames: Int = Int.MAX_VALUE,
+        /** Sampelintervall som inte får användas, t.ex. medan röstguiden talar. */
+        exclude: List<IntRange> = emptyList(),
+    ): Result? {
         val count = (rec.size - from) / FRAME
         if (count <= 0) return null
         val energy = DoubleArray(count) { f ->
@@ -122,10 +128,17 @@ object Multitone {
         val ref80 = energy.sorted()[((count - 1) * 0.8).toInt()]
         val isSignal = BooleanArray(count) { energy[it] > ref80 * 0.4 }
         // Bara ramar med signal på båda sidor, så att ramar som delvis ligger i ett glapp sorteras bort.
-        val use = (1 until count - 1).filter { isSignal[it - 1] && isSignal[it] && isSignal[it + 1] }.takeLast(maxFrames)
+        val excluded = BooleanArray(count) { f ->
+            val a = from + f * FRAME
+            val b = a + FRAME - 1
+            exclude.any { r -> r.first <= b && r.last >= a }
+        }
+        val use = (1 until count - 1)
+            .filter { isSignal[it - 1] && isSignal[it] && isSignal[it + 1] && !excluded[it] }
+            .takeLast(maxFrames)
         if (use.isEmpty()) return null
         val firstSignal = isSignal.indexOfFirst { it }
-        val quiet = (0 until firstSignal).filter { energy[it] < maxE / 100.0 }
+        val quiet = (0 until firstSignal).filter { energy[it] < maxE / 100.0 && !excluded[it] }
 
         val pSum = DoubleArray(FRAME / 2)
         for (f in use) {

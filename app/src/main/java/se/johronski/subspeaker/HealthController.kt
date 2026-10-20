@@ -88,6 +88,33 @@ class HealthController(private val services: AppServices, private val store: Sto
     private var phaseJob: Job? = null
     private var recorder: SweepRecorder? = null
 
+    // Röstguiden hörs i mikrofonen. Sampel från då rösten talar och en sekund efter används inte.
+    private val spoken = mutableListOf<IntRange>()
+    private var speechFrom: Int? = null
+    private var speechId = 0
+
+    /** Läser upp texten och markerar tiden så att mätningen bortser från den. */
+    private fun say(text: String, minGapMs: Long = 0) {
+        val rec = recorder
+        val id = synchronized(spoken) { ++speechId }
+        val start = rec?.size
+        val started = speaker.say(text, minGapMs) {
+            synchronized(spoken) {
+                val from = speechFrom
+                if (id == speechId && from != null && recorder === rec && rec != null) {
+                    spoken += from until rec.size + SweepAnalyzer.FS
+                    speechFrom = null
+                }
+            }
+        }
+        if (started && start != null) synchronized(spoken) { if (speechFrom == null) speechFrom = start }
+    }
+
+    /** Intervall som mätningen ska bortse från just nu. */
+    private fun excluded(): List<IntRange> = synchronized(spoken) {
+        spoken.toList() + (speechFrom?.let { listOf(it until Int.MAX_VALUE) } ?: emptyList())
+    }
+
     val target: Double get() = services.guide.state.value.targetBalance
 
     private fun set(f: (State) -> State) {
@@ -120,17 +147,17 @@ class HealthController(private val services: AppServices, private val store: Sto
         stopAll()
         val needed = 10
         set { it.copy(measuring = true, progress = 0f, error = null, levelOk = null, status = "Startar mätljudet …") }
-        speaker.say(if (after) "Efterkontroll. Rör telefonen långsamt runt huvudet." else "Rör telefonen långsamt runt huvudet.")
         job = scope.launch {
             try {
                 val rec = startListening()
+                say(if (after) "Efterkontroll. Rör telefonen långsamt runt huvudet." else "Rör telefonen långsamt runt huvudet.")
                 val started = System.currentTimeMillis()
                 var result: Multitone.Result? = null
                 while (isActive) {
                     delay(500)
                     rec.error?.let { throw IllegalStateException(it) }
                     val data = rec.snapshot()
-                    val r = Multitone.analyze(data)
+                    val r = Multitone.analyze(data, exclude = excluded())
                     val frames = r?.frames ?: 0
                     val left = ((needed - frames).coerceAtLeast(0) * Multitone.FRAME / SweepAnalyzer.FS.toDouble()).toInt() + 1
                     val ok = r?.snrDb?.let { it >= 20 }
@@ -211,14 +238,14 @@ class HealthController(private val services: AppServices, private val store: Sto
                 phaseResults = emptyMap(), phasePrompt = null, phaseBest = null, levelStart = null, error = null,
             )
         }
-        when (action) {
-            Diagnosis.Action.PHASE -> speaker.say("Ställ telefonen i öronhöjd på din plats.")
-            Diagnosis.Action.LOWPASS -> speaker.say("Lämna telefonen på din plats. Gå till subben och vrid lågpassratten långsamt nedåt.")
-            Diagnosis.Action.LEVEL -> speaker.say("Ställ telefonen i öronhöjd på din plats och använd volymknapparna på fjärrkontrollen.")
-        }
         job = scope.launch {
             try {
                 val rec = startListening()
+                when (action) {
+                    Diagnosis.Action.PHASE -> say("Ställ telefonen i öronhöjd på din plats.")
+                    Diagnosis.Action.LOWPASS -> say("Lämna telefonen på din plats. Gå till subben och vrid lågpassratten långsamt nedåt.")
+                    Diagnosis.Action.LEVEL -> say("Ställ telefonen i öronhöjd på din plats och använd volymknapparna på fjärrkontrollen.")
+                }
                 var lastFrames = 0
                 var lastWord: String? = null
                 while (isActive) {
@@ -231,7 +258,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                     lastFrames = frames
                     val data = rec.snapshot()
                     val from = (data.size - 5 * Multitone.FRAME).coerceAtLeast(0)
-                    val r = Multitone.analyze(data, from, 3) ?: continue
+                    val r = Multitone.analyze(data, from, 3, excluded()) ?: continue
                     val uneven = SweepAnalyzer.deviation(r.db)
                     val bal = SweepAnalyzer.balance(r.db)
                     set {
@@ -251,7 +278,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                         Diagnosis.Action.PHASE -> null
                     }
                     if (word != null && word != lastWord) {
-                        speaker.say(word, 4000)
+                        say(word, 4000)
                         lastWord = word
                     }
                 }
@@ -274,7 +301,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                 delay(3000)
                 val results = mutableMapOf<Int, Double>()
                 for (ph in listOf(0, 90, 180, 270)) {
-                    speaker.say("Tryck $ph.")
+                    say("Tryck $ph.")
                     for (c in 4 downTo 1) {
                         set { it.copy(phasePrompt = ph, phaseCountdown = c) }
                         delay(1000)
@@ -284,13 +311,13 @@ class HealthController(private val services: AppServices, private val store: Sto
                     val mark = rec.size
                     while (rec.size < mark + 5 * Multitone.FRAME) delay(250)
                     val data = rec.snapshot()
-                    val r = Multitone.analyze(data, mark, 3)
+                    val r = Multitone.analyze(data, mark, 3, excluded())
                     if (r != null) results[ph] = SweepAnalyzer.deviation(r.db)
                     set { it.copy(phaseResults = results.toMap()) }
                 }
                 val best = results.minByOrNull { it.value }?.key ?: return@launch
                 set { it.copy(phasePrompt = null, phaseBest = best) }
-                speaker.say("Klart. Tryck $best. Det var jämnast.")
+                say("Klart. Tryck $best. Det var jämnast.")
             } catch (_: CancellationException) {
             }
         }
@@ -396,6 +423,10 @@ class HealthController(private val services: AppServices, private val store: Sto
         }
         val rec = SweepRecorder()
         rec.start(services.micSource(), services.micDevice())
+        synchronized(spoken) {
+            spoken.clear()
+            speechFrom = null
+        }
         recorder = rec
         play()
         return rec

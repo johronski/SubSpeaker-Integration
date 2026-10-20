@@ -534,7 +534,7 @@ private fun VoiceToggle(services: AppServices) {
     OutlinedButton(
         onClick = { services.setVoice(!settings.voice) },
         border = BorderStroke(1.dp, if (settings.voice) Good else Line),
-    ) { Text(if (settings.voice) "Röst på" else "Röst av", color = Ink) }
+    ) { Text(if (settings.voice) "Röstguide: på" else "Röstguide: av", color = Ink) }
 }
 
 // ---------- Klart ----------

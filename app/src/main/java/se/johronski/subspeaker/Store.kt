@@ -77,8 +77,8 @@ data class Settings(
     val outKey: String? = null,
     val localGain: Float = 0.3f,
     val allowHighVolume: Boolean = false,
-    /** Läs upp instruktioner i hälsokollen. */
-    val voice: Boolean = true,
+    /** Läs upp instruktioner i hälsokollen. Av som standard. */
+    val voice: Boolean = false,
 )
 
 class SettingsStore(private val store: Store) {
@@ -104,7 +104,8 @@ class SettingsStore(private val store: Store) {
                 outKey = j.optString("outKey").ifBlank { null },
                 localGain = j.optDouble("localGain", 0.3).toFloat(),
                 allowHighVolume = j.optBoolean("allowHighVolume", false),
-                voice = j.optBoolean("voice", true),
+                // Ny nyckel: rösten var på som standard i 0.8.0 och ska nu vara av tills användaren slår på den.
+                voice = j.optBoolean("voiceOn", false),
             )
         } catch (e: Exception) {
             Settings()
@@ -121,7 +122,7 @@ class SettingsStore(private val store: Store) {
             .put("outKey", s.outKey ?: "")
             .put("localGain", s.localGain.toDouble())
             .put("allowHighVolume", s.allowHighVolume)
-            .put("voice", s.voice)
+            .put("voiceOn", s.voice)
         store.put(KEY, j.toString())
     }
 

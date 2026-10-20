@@ -134,4 +134,19 @@ class HealthTest {
         assertEquals(20 * log10(0.5), ref, 0.4)
         for (f in listOf(30.0, 63.0, 200.0)) assertEquals(ref, at(res.db, f), 0.4)
     }
+
+    @Test
+    fun excludedSpeechIsIgnored() {
+        val rec = record(0.5, 1.0, 14.0)
+        // "Röst" mitt i: en kraftig 150 Hz-ton under 1,5 s.
+        val start = 4 * Multitone.FRAME + 300
+        val len = (1.5 * SweepAnalyzer.FS).toInt()
+        for (i in 0 until len) rec[start + i] += (0.3 * kotlin.math.sin(2 * Math.PI * 150.0 * i / SweepAnalyzer.FS)).toFloat()
+        val disturbed = Multitone.analyze(rec)!!
+        val clean = Multitone.analyze(rec, exclude = listOf(start until start + len + SweepAnalyzer.FS))!!
+        val ref = 20 * log10(0.5)
+        assertTrue(kotlin.math.abs(at(disturbed.db, 150.0) - ref) > 1.0)
+        assertEquals(ref, at(clean.db, 150.0), 0.3)
+        assertTrue(clean.frames < disturbed.frames)
+    }
 }
