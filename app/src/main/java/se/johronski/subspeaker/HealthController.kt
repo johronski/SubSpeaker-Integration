@@ -78,6 +78,10 @@ class HealthController(private val services: AppServices, private val store: Sto
         val afterReport: Diagnosis.Report? = null,
         val lastDate: String? = null,
         val lastSummary: String? = null,
+        /** Varningar per mätning ("TOGETHER", "GENELEC", "SUB", "AFTER") när kurvan är osäker. */
+        val warnings: Map<String, String> = emptyMap(),
+        /** Sekunder sedan mätningen startade, för knappen "Visa det som hunnits mäta". */
+        val elapsedS: Int = 0,
     )
 
     private val _state = MutableStateFlow(load())
@@ -87,6 +91,9 @@ class HealthController(private val services: AppServices, private val store: Sto
     private var job: Job? = null
     private var phaseJob: Job? = null
     private var recorder: SweepRecorder? = null
+
+    @Volatile
+    private var stopEarly = false
 
     // Röstguiden hörs i mikrofonen. Sampel från då rösten talar och en sekund efter används inte.
     private val spoken = mutableListOf<IntRange>()
@@ -125,11 +132,12 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     fun startCheck() {
         stopAll()
+        single = false
         set {
             it.copy(
                 screen = Screen.CHECK, part = Part.TOGETHER, together = null, genelec = null, sub = null,
                 report = null, resolved = emptySet(), changes = emptyList(), after = null, afterReport = null,
-                error = null, genelecOff = false,
+                error = null, genelecOff = false, warnings = emptyMap(),
             )
         }
         measure(Part.TOGETHER)
@@ -137,6 +145,21 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     /** Mäter nästa del (efter att användaren tryckt MUTE eller stängt av Genelecerna). */
     fun measurePart() = measure(_state.value.part)
+
+    /** Avslutar pågående mätning och visar det som hunnits mäta, med varning. */
+    fun finishEarly() {
+        stopEarly = true
+    }
+
+    @Volatile
+    private var single = false
+
+    /** Mäter om en tidigare del, t.ex. efter en varning. Från diagnosen går appen tillbaka dit efteråt. */
+    fun remeasure(part: Part) {
+        single = _state.value.screen == Screen.DIAGNOSIS
+        set { it.copy(part = part, screen = Screen.CHECK) }
+        measure(part)
+    }
 
     fun skipSub() {
         stopAll()
@@ -147,12 +170,14 @@ class HealthController(private val services: AppServices, private val store: Sto
         stopAll()
         val needed = 10
         set { it.copy(measuring = true, progress = 0f, error = null, levelOk = null, status = "Startar mätljudet …") }
+        stopEarly = false
         job = scope.launch {
             try {
                 val rec = startListening()
                 say(if (after) "Efterkontroll. Rör telefonen långsamt runt huvudet." else "Rör telefonen långsamt runt huvudet.")
                 val started = System.currentTimeMillis()
                 var result: Multitone.Result? = null
+                var timedOut = false
                 while (isActive) {
                     delay(500)
                     rec.error?.let { throw IllegalStateException(it) }
@@ -161,24 +186,37 @@ class HealthController(private val services: AppServices, private val store: Sto
                     val frames = r?.frames ?: 0
                     val left = ((needed - frames).coerceAtLeast(0) * Multitone.FRAME / SweepAnalyzer.FS.toDouble()).toInt() + 1
                     val ok = r?.snrDb?.let { it >= 20 }
+                    val elapsed = ((System.currentTimeMillis() - started) / 1000).toInt()
                     set {
                         it.copy(
                             progress = (frames.toFloat() / needed).coerceIn(0f, 1f),
                             status = if (frames == 0) "Väntar på mätljudet …" else "$left s kvar",
                             levelOk = ok ?: it.levelOk,
+                            elapsedS = elapsed,
                         )
                     }
                     if (frames >= needed) { result = r; break }
-                    if (System.currentTimeMillis() - started > 45_000) {
-                        throw IllegalStateException("Hörde för lite av mätljudet. Kontrollera uppspelning och volym och försök igen.")
+                    if (stopEarly || elapsed > 30) {
+                        timedOut = true
+                        result = Multitone.analyze(data, exclude = excluded(), fallback = true)
+                        break
                     }
                 }
                 stopListening()
-                val r = result ?: return@launch
-                if (r.peakDbfs > -1.0) {
-                    set { it.copy(measuring = false, error = "Mikrofonen överstyrdes. Sänk volymen lite och försök igen.") }
-                    return@launch
-                }
+                val r = result ?: throw IllegalStateException(
+                    "Ingen kurva kunde räknas fram – mätningen blev för kort. Kontrollera uppspelning och volym och försök igen.",
+                )
+                val key = if (after) "AFTER" else part.name
+                val warn = buildList {
+                    val secs = (r.frames * Multitone.FRAME / SweepAnalyzer.FS.toDouble()).toInt()
+                    when {
+                        !r.reliable -> add("Mätljudet gick inte att skilja från bakgrundsljudet – kurvan är mest brus.")
+                        timedOut && r.frames < needed -> add("Bara $secs s mätljud hördes – kurvan är osäker.")
+                    }
+                    r.snrDb?.takeIf { it < 15 }?.let { add("Svagt mätljud (${it.toInt()} dB över bakgrunden) – kurvan är osäker.") }
+                    if (r.peakDbfs > -1.0) add("Mikrofonen överstyrdes – kurvan kan vara fel. Sänk volymen lite.")
+                }.joinToString(" ")
+                set { it.copy(warnings = if (warn.isEmpty()) it.warnings - key else it.warnings + (key to warn)) }
                 services.signalDone()
                 if (after) {
                     val s = _state.value
@@ -186,6 +224,19 @@ class HealthController(private val services: AppServices, private val store: Sto
                     set { it.copy(measuring = false, after = r.db, afterReport = rep, screen = Screen.DONE) }
                     speaker.say("Klart.")
                     save()
+                    return@launch
+                }
+                if (single) {
+                    single = false
+                    set {
+                        when (part) {
+                            Part.TOGETHER -> it.copy(together = r.db)
+                            Part.GENELEC -> it.copy(genelec = r.db)
+                            Part.SUB -> it.copy(sub = r.db, genelecOff = true)
+                        }.copy(measuring = false, status = "")
+                    }
+                    diagnose()
+                    say(if (part == Part.SUB) "Klart. Slå på Genelecerna igen." else "Klart.")
                     return@launch
                 }
                 when (part) {
@@ -491,6 +542,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             .put("changes", Store.strings(s.changes))
             .put("lastDate", s.lastDate ?: JSONObject.NULL)
             .put("lastSummary", s.lastSummary ?: JSONObject.NULL)
+            .put("warnings", JSONObject().also { w -> s.warnings.forEach { (k, v) -> w.put(k, v) } })
         store.put(KEY, j.toString())
     }
 
@@ -508,6 +560,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                 changes = Store.strings(j.optJSONArray("changes")),
                 lastDate = if (j.isNull("lastDate")) null else j.optString("lastDate"),
                 lastSummary = if (j.isNull("lastSummary")) null else j.optString("lastSummary"),
+                warnings = j.optJSONObject("warnings")?.let { w -> w.keys().asSequence().associateWith { k -> w.getString(k) } } ?: emptyMap(),
             ).let { s ->
                 val t = s.together
                 val g = s.genelec

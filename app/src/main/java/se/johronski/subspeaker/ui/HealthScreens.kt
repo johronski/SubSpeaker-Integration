@@ -234,8 +234,22 @@ private fun CheckScreen(services: AppServices, s: HealthController.State, after:
                 false -> Notice("Mätljudet är svagt. Höj volymen lite.", Tone.WARN)
                 null -> {}
             }
+            if (s.elapsedS >= 10) {
+                OutlinedButton(onClick = { services.health.finishEarly() }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Text("Visa det som hunnits mäta")
+                }
+                Muted("Kurvan visas med en varning om mätningen blev kort eller svag.")
+            }
         } else {
             s.error?.let { Notice(it, Tone.WARN) }
+            // Varning för den del som just mättes, med möjlighet att mäta om den.
+            val prev = HealthController.Part.entries.getOrNull(s.part.ordinal - 1)
+            if (!after && prev != null) {
+                s.warnings[prev.name]?.let { w ->
+                    Notice("${prev.title}: $w", Tone.WARN)
+                    TextButton(onClick = { services.health.remeasure(prev) }) { Text("Mät om ${prev.title.lowercase(Locale.ROOT)}") }
+                }
+            }
             when {
                 after || (s.part == HealthController.Part.TOGETHER) -> {
                     BigButton(if (s.error != null) "Försök igen" else "Mät") {
@@ -278,6 +292,26 @@ private fun DiagnosisScreen(services: AppServices, s: HealthController.State) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Kicker("Hälsokoll klar")
             Title(rep.headline)
+        }
+        if (s.warnings.isNotEmpty()) {
+            Panel(container = WarnSoft) {
+                Text("Osäkra mätningar", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                s.warnings.forEach { (k, w) ->
+                    val name = when (k) {
+                        "TOGETHER" -> "Allt tillsammans"
+                        "GENELEC" -> "Genelec ensam"
+                        "SUB" -> "Sub ensam"
+                        else -> "Efterkontrollen"
+                    }
+                    Text("$name: $w", fontSize = 15.sp, lineHeight = 21.sp)
+                    HealthController.Part.entries.firstOrNull { it.name == k }?.let { part ->
+                        TextButton(onClick = { services.health.remeasure(part) }) {
+                            Text("Mät om ${name.lowercase(Locale.ROOT)}" + if (part == HealthController.Part.GENELEC) " (tryck MUTE först)" else if (part == HealthController.Part.SUB) " (Genelecerna av)" else "")
+                        }
+                    }
+                }
+                Muted("Diagnosen bygger på dessa kurvor. Höj volymen lite och gör om kollen för ett säkrare resultat.")
+            }
         }
         if (s.genelecOff) {
             Panel(container = WarnSoft) {
@@ -573,6 +607,7 @@ private fun DoneScreen(services: AppServices, s: HealthController.State) {
                 },
             )
         }
+        s.warnings["AFTER"]?.let { Notice("Efterkontrollen: $it", Tone.WARN) }
         s.after?.let { a ->
             Panel {
                 BassLandscape(a, before = s.together, height = 150.dp)

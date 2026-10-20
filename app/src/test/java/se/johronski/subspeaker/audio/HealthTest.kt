@@ -149,4 +149,33 @@ class HealthTest {
         assertEquals(ref, at(clean.db, 150.0), 0.3)
         assertTrue(clean.frames < disturbed.frames)
     }
+
+    @Test
+    fun handlingRumbleDoesNotHideSignal() {
+        val rec = record(0.05, 1.0, 16.0)
+        // Kraftigt muller kring 4–7 Hz som sveller upp och ner, som när telefonen rörs runt huvudet.
+        var ph = 0.0
+        for (n in rec.indices) {
+            val env = 0.5 - 0.5 * kotlin.math.cos(2 * Math.PI * n / (2.0 * Multitone.FRAME))
+            val f = 5.5 + 1.5 * kotlin.math.sin(2 * Math.PI * n / (7.0 * SweepAnalyzer.FS))
+            ph += 2 * Math.PI * f / SweepAnalyzer.FS
+            rec[n] += (0.4 * env * kotlin.math.sin(ph)).toFloat()
+        }
+        val res = Multitone.analyze(rec)!!
+        assertTrue(res.reliable)
+        assertTrue(res.frames >= 8)
+        assertEquals(20 * log10(0.05), at(res.db, 100.0), 0.5)
+    }
+
+    @Test
+    fun fallbackGivesUnreliableCurve() {
+        // Bara brus, inget mätljud.
+        val rnd = Random(9)
+        val rec = FloatArray(12 * Multitone.FRAME) { (rnd.nextGaussian() * 0.001).toFloat() }
+        // Utan reserv: ingen kurva om inga ramar räknas som signal. Med reserv: alltid en kurva, markerad osäker.
+        val r = Multitone.analyze(rec, fallback = true)
+        assertNotNull(r)
+        val strict = Multitone.analyze(rec)
+        if (strict == null) assertTrue(!r!!.reliable)
+    }
 }
