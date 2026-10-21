@@ -145,6 +145,37 @@ object Multitone {
         }
     }
 
+    private val hann: DoubleArray by lazy { DoubleArray(FRAME) { 0.5 - 0.5 * cos(2 * PI * it / FRAME) } }
+
+    /** Effekt per bin med Hann-fönster, för okända signaler (t.ex. musik) som inte är periodiska. */
+    fun powerHann(x: FloatArray, start: Int): DoubleArray {
+        val w = hann
+        val re = DoubleArray(FRAME) { x[start + it] * w[it] }
+        val im = DoubleArray(FRAME)
+        Fft.transform(re, im, false)
+        return DoubleArray(FRAME / 2) { re[it] * re[it] + im[it] * im[it] }
+    }
+
+    /**
+     * Det mikrofonen hör, utan mätljud: effekt per 1/6-oktavsband i dB relativt en sinus med full skala.
+     * Visar ljudets spektrum, inte högtalarnas frekvensgång.
+     */
+    fun rawCurve(meanPower: DoubleArray): DoubleArray {
+        // Hann: en sinus med amplitud A ger toppen (A·N/4)² och sprids över ~1,5 bin (ekvivalent brusbandbredd).
+        val scale = 16.0 / (FRAME.toDouble() * FRAME) / 1.5
+        return DoubleArray(SweepAnalyzer.FREQUENCIES.size) { i ->
+            val fc = SweepAnalyzer.FREQUENCIES[i]
+            val lo = fc * 2.0.pow(-1.0 / 12.0)
+            val hi = fc * 2.0.pow(1.0 / 12.0)
+            var sum = 0.0
+            for (k in 1 until FRAME / 2) {
+                val f = k * binHz
+                if (f in lo..hi) sum += meanPower[k]
+            }
+            10.0 * log10(sum * scale + 1e-20)
+        }
+    }
+
     /** Effekt per bin för en ram ur x som börjar på [start]. */
     fun power(x: FloatArray, start: Int): DoubleArray {
         val re = DoubleArray(FRAME) { x[start + it].toDouble() }

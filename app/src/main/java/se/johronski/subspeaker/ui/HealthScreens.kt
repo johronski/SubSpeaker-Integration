@@ -196,31 +196,43 @@ private fun CheckScreen(services: AppServices, s: HealthController.State, after:
             TextButton(onClick = { services.health.cancel() }) { Text("Avbryt", color = Bad, fontSize = 15.sp) }
         }
         if (!after) {
+            if (!s.measuring) Muted("Välj vilken del du vill mäta. Ordningen spelar ingen roll.")
             HealthController.Part.entries.forEach { p ->
-                val done = p.ordinal < s.part.ordinal
+                val done = services.health.curveFor(s, p) != null
                 val current = p == s.part
+                val warn = s.warnings[p.name]
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
                         .background(if (current) AccentSoft else Color.Transparent)
+                        .clickable(enabled = !s.measuring) { services.health.selectPart(p) }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
                     Box(
                         Modifier
                             .size(28.dp)
                             .clip(CircleShape)
-                            .background(if (current) Accent else if (done) Good else Color.Transparent)
+                            .background(if (done && warn == null) Good else if (done) Warn else if (current) Accent else Color.Transparent)
                             .border(1.5.dp, if (current || done) Color.Transparent else InkMuted, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(if (done) "✓" else "${p.ordinal + 1}", fontSize = 14.sp, color = if (current || done) Color.White else InkMuted)
+                        Text(if (done && warn == null) "✓" else if (done) "!" else "${p.ordinal + 1}", fontSize = 14.sp, color = if (current || done) Color.White else InkMuted)
                     }
                     Spacer(Modifier.width(12.dp))
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text(p.title, fontSize = 16.sp, fontWeight = if (current) FontWeight.Medium else FontWeight.Normal)
-                        Text(if (current && s.measuring) "lyssnar nu" else p.hint, fontSize = 13.sp, color = InkMuted)
+                        Text(
+                            when {
+                                current && s.measuring -> "lyssnar nu"
+                                done && warn != null -> "mätt, men osäker – välj för att mäta om"
+                                done -> "mätt – välj för att mäta om"
+                                p == HealthController.Part.SUB -> "valfri · kräver att Genelecerna stängs av"
+                                else -> p.hint
+                            },
+                            fontSize = 13.sp, color = InkMuted,
+                        )
                     }
                 }
             }
@@ -260,38 +272,33 @@ private fun CheckScreen(services: AppServices, s: HealthController.State, after:
             }
         } else {
             s.error?.let { Notice(it, Tone.WARN) }
-            // Varning för den del som just mättes, med möjlighet att mäta om den.
-            val prev = HealthController.Part.entries.getOrNull(s.part.ordinal - 1)
-            if (!after && prev != null) {
-                s.warnings[prev.name]?.let { w ->
-                    Notice("${prev.title}: $w", Tone.WARN)
-                    TextButton(onClick = { services.health.remeasure(prev) }) { Text("Mät om ${prev.title.lowercase(Locale.ROOT)}") }
-                }
-            }
-            when {
-                after || (s.part == HealthController.Part.TOGETHER) -> {
-                    BigButton(if (s.error != null) "Försök igen" else "Mät") {
-                        if (after) services.health.startAfter() else services.health.measurePart()
+            if (after) {
+                BigButton(if (s.error != null) "Försök igen" else "Mät") { services.health.startAfter() }
+            } else {
+                s.warnings[s.part.name]?.let { Notice("${s.part.title}: $it", Tone.WARN) }
+                Panel(container = AccentSoft) {
+                    Kicker("Före mätningen", Accent)
+                    when (s.part) {
+                        HealthController.Part.TOGETHER -> {
+                            Text("Allt ska spela: MUTE av på subben och Genelecerna påslagna.", fontSize = 19.sp, lineHeight = 27.sp)
+                        }
+                        HealthController.Part.GENELEC -> {
+                            Text("Tryck MUTE på Velodynens fjärrkontroll.", fontSize = 19.sp, lineHeight = 27.sp)
+                            Muted("Genelecerna ska vara påslagna. De fortsätter spela – bara subben tystnar.")
+                        }
+                        HealthController.Part.SUB -> {
+                            Text("MUTE av på subben. Stäng av båda Genelecerna.", fontSize = 19.sp, lineHeight = 27.sp)
+                            Muted("Då hör appen subben ensam och kan bedöma lågpasset. Kom ihåg att slå på Genelecerna efteråt.")
+                        }
                     }
                 }
-                s.part == HealthController.Part.GENELEC -> {
-                    Panel(container = AccentSoft) {
-                        Kicker("Nu", Accent)
-                        Text("Tryck MUTE på Velodynens fjärrkontroll.", fontSize = 20.sp, lineHeight = 28.sp)
-                        Muted("Genelecerna fortsätter spela – bara subben tystnar.")
+                BigButton("Mät: ${s.part.title.lowercase(Locale.ROOT)}") { services.health.measurePart() }
+                if (s.together != null && s.genelec != null) {
+                    OutlinedButton(onClick = { services.health.showDiagnosis() }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                        Text(if (s.sub == null) "Visa diagnos utan sub ensam" else "Visa diagnos")
                     }
-                    BigButton("Gjort – mät") { services.health.measurePart() }
-                }
-                s.part == HealthController.Part.SUB -> {
-                    Panel(container = AccentSoft) {
-                        Kicker("Nu", Accent)
-                        Text("Slå av MUTE. Stäng sedan av båda Genelecerna.", fontSize = 20.sp, lineHeight = 28.sp)
-                        Muted("Då hör appen subben ensam och kan bedöma lågpasset. Det kräver en promenad – du kan hoppa över.")
-                    }
-                    BigButton("Gjort – mät") { services.health.measurePart() }
-                    OutlinedButton(onClick = { services.health.skipSub() }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-                        Text("Hoppa över – slå bara av MUTE")
-                    }
+                } else {
+                    Muted("Diagnosen kräver Allt tillsammans och Genelec ensam. Sub ensam är valfri.")
                 }
             }
         }

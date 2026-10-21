@@ -13,6 +13,9 @@ import kotlin.math.sqrt
  */
 class LiveSpectrum(var tauSeconds: Double = 4.0) {
 
+    /** true = utan mätljud: visar vad mikrofonen hör (t.ex. musik) i stället för högtalarnas svar. */
+    var raw: Boolean = false
+
     private var avg: DoubleArray? = null
     private var level = 0.0
     private var lastCurve: DoubleArray? = null
@@ -41,12 +44,13 @@ class LiveSpectrum(var tauSeconds: Double = 4.0) {
     fun update(tail: FloatArray, dtSeconds: Double, skip: Boolean = false): Boolean {
         if (skip || tail.size < Multitone.FRAME + 300) return false
         val x = Multitone.highPass(tail, 0)
-        val p = Multitone.power(x, x.size - Multitone.FRAME)
+        val p = if (raw) Multitone.powerHann(x, x.size - Multitone.FRAME) else Multitone.power(x, x.size - Multitone.FRAME)
         var e = 0.0
         for (k in Multitone.toneBins) e += p[k]
         if (e <= 0.0) return false
-        // Glapp (Chromecasten startar om): nästan tyst jämfört med nivån hittills. MUTE och nivåändringar är betydligt mindre.
-        if (level > 0 && e < level * 0.05) return false
+        // Glapp (Chromecasten startar om): nästan tyst jämfört med nivån hittills. MUTE och nivåändringar är
+        // betydligt mindre. Utan mätljud finns inga glapp att sortera bort.
+        if (!raw && level > 0 && e < level * 0.05) return false
         level = if (level == 0.0) e else level + 0.2 * (e - level)
 
         val a = avg
@@ -56,7 +60,7 @@ class LiveSpectrum(var tauSeconds: Double = 4.0) {
             val alpha = 1.0 - exp(-dtSeconds / tauSeconds.coerceAtLeast(0.1))
             for (k in Multitone.toneBins) a[k] += alpha * (p[k] - a[k])
         }
-        val c = Multitone.curve(avg!!)
+        val c = if (raw) Multitone.rawCurve(avg!!) else Multitone.curve(avg!!)
         lastCurve?.let { prev ->
             val idx = SweepAnalyzer.FREQUENCIES.indices.filter { SweepAnalyzer.FREQUENCIES[it] in 30.0..200.0 }
             val d = sqrt(idx.sumOf { (c[it] - prev[it]) * (c[it] - prev[it]) } / idx.size)

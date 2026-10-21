@@ -198,4 +198,16 @@ class HealthTest {
         assertEquals(20 * log10(0.25), at(live.curve!!, 100.0), 0.5)
         assertTrue(live.stable)
     }
+
+    @Test
+    fun rawModeShowsToneLevel() {
+        // En sinus på 60 Hz med amplitud 0,1 (−20 dBFS) ska synas som ungefär −20 dB vid 60 Hz.
+        val n = 3 * Multitone.FRAME + 600
+        val x = FloatArray(n) { (0.1 * kotlin.math.sin(2 * Math.PI * 60.0 * it / SweepAnalyzer.FS)).toFloat() }
+        val live = LiveSpectrum(1.0).apply { raw = true }
+        live.update(x, 0.3)
+        val c = live.curve!!
+        assertEquals(-20.0, at(c, 60.0), 1.5)
+        assertTrue(at(c, 200.0) < -50)
+    }
 }

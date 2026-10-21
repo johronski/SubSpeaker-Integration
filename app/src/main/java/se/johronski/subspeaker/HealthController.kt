@@ -98,6 +98,8 @@ class HealthController(private val services: AppServices, private val store: Sto
         val elapsedS: Int = 0,
         /** Verktyget "Live-kurva" i menyn är igång. */
         val liveTool: Boolean = false,
+        /** Live-kurva utan mätljud: visar bara vad mikrofonen hör. */
+        val liveRaw: Boolean = false,
         /** Id för den här kollens rad i Sparade resultat. */
         val resultId: String? = null,
     )
@@ -209,7 +211,7 @@ class HealthController(private val services: AppServices, private val store: Sto
         val curves = linkedMapOf("Nu" to c)
         l.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { curves[it.label] = it.db }
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
-        services.guide.saveResult(SavedResult(date, listOf("Live-kurva, ${l.speed.label.lowercase(Locale.ROOT)} medelvärde"), curves, "Live-kurva"))
+        services.guide.saveResult(SavedResult(date, listOf((if (_state.value.liveRaw) "Utan mätljud (det mikrofonen hörde)" else "Med mätljud") + ", ${l.speed.label.lowercase(Locale.ROOT)} medelvärde"), curves, "Live-kurva"))
         services.notify("Sparat i Sparade resultat")
     }
 
@@ -218,21 +220,22 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     // ---------- Verktyget Live-kurva ----------
 
-    fun startLiveTool() {
+    fun startLiveTool(withSound: Boolean = true) {
         stopAll()
         spectrum.reset()
+        spectrum.raw = !withSound
         val speed = _state.value.live.speed
         spectrum.tauSeconds = speed.tau
         val kept = _state.value.live.snapshots.filter { it.label.startsWith("Jämförelse") }.ifEmpty { loadSnapshots() }
-        set { it.copy(liveTool = true, live = Live(listening = true, speed = speed, snapshots = kept), error = null) }
+        set { it.copy(liveTool = true, liveRaw = !withSound, live = Live(listening = true, speed = speed, snapshots = kept), error = null) }
         job = scope.launch {
             try {
-                val rec = startListening()
+                val rec = startListening(playSound = withSound)
                 var last = System.currentTimeMillis()
                 while (isActive) {
                     delay(300)
                     rec.error?.let { throw IllegalStateException(it) }
-                    ensurePlaying()
+                    if (withSound) ensurePlaying()
                     val now = System.currentTimeMillis()
                     updateLive(rec, (now - last) / 1000.0)
                     last = now
@@ -283,7 +286,26 @@ class HealthController(private val services: AppServices, private val store: Sto
                 error = null, genelecOff = false, warnings = emptyMap(), resultId = null,
             )
         }
-        measure(Part.TOGETHER)
+    }
+
+    fun curveFor(s: State, p: Part): DoubleArray? = when (p) {
+        Part.TOGETHER -> s.together
+        Part.GENELEC -> s.genelec
+        Part.SUB -> s.sub
+    }
+
+    /** Väljer vilken del som ska mätas härnäst. */
+    fun selectPart(p: Part) {
+        if (_state.value.measuring) return
+        set { it.copy(part = p, error = null) }
+    }
+
+    /** Visar diagnosen när Allt tillsammans och Genelec ensam är mätta. */
+    fun showDiagnosis() {
+        val s = _state.value
+        if (s.together == null || s.genelec == null) return
+        diagnose()
+        if (s.sub != null) set { it.copy(genelecOff = true) }
     }
 
     /** Mäter nästa del (efter att användaren tryckt MUTE eller stängt av Genelecerna). */
@@ -396,20 +418,30 @@ class HealthController(private val services: AppServices, private val store: Sto
                     say(if (part == Part.SUB) "Klart. Slå på Genelecerna igen." else "Klart.")
                     return@launch
                 }
-                when (part) {
-                    Part.TOGETHER -> {
-                        set { it.copy(measuring = false, together = r.db, part = Part.GENELEC, status = "") }
-                        speaker.say("Bra. Tryck MUTE på fjärrkontrollen.")
-                    }
-                    Part.GENELEC -> {
-                        set { it.copy(measuring = false, genelec = r.db, part = Part.SUB, status = "") }
-                        speaker.say("Bra. Slå av MUTE. Stäng sedan av båda Genelecerna, eller hoppa över.")
-                    }
-                    Part.SUB -> {
-                        set { it.copy(measuring = false, sub = r.db, genelecOff = true, status = "") }
-                        diagnose()
-                        speaker.say("Klart. Slå på Genelecerna igen.")
-                    }
+                set {
+                    when (part) {
+                        Part.TOGETHER -> it.copy(together = r.db)
+                        Part.GENELEC -> it.copy(genelec = r.db)
+                        Part.SUB -> it.copy(sub = r.db)
+                    }.copy(measuring = false, status = "")
+                }
+                val st = _state.value
+                if (st.together != null && st.genelec != null && st.sub != null) {
+                    // Alla tre mätta: visa diagnosen.
+                    set { it.copy(genelecOff = true) }
+                    diagnose()
+                    say("Klart. Slå på Genelecerna igen och slå av MUTE.")
+                } else {
+                    // Föreslå nästa omätta del; användaren kan välja en annan.
+                    val next = Part.entries.first { p -> curveFor(st, p) == null }
+                    set { it.copy(part = next) }
+                    say(
+                        when (next) {
+                            Part.TOGETHER -> "Bra. Nästa: allt tillsammans. Slå av MUTE och slå på Genelecerna."
+                            Part.GENELEC -> "Bra. Nästa: Genelec ensam. Tryck MUTE på fjärrkontrollen."
+                            Part.SUB -> "Bra. Nästa: sub ensam. Slå av MUTE och stäng av Genelecerna, eller visa diagnosen."
+                        },
+                    )
                 }
             } catch (e: CancellationException) {
                 stopListening()
@@ -464,6 +496,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             )
         }
         spectrum.reset()
+        spectrum.raw = false
         spectrum.tauSeconds = _state.value.live.speed.tau
         job = scope.launch {
             try {
@@ -655,7 +688,7 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     private var playStarted = 0L
 
-    private suspend fun startListening(): SweepRecorder {
+    private suspend fun startListening(playSound: Boolean = true): SweepRecorder {
         withContext(Dispatchers.Main) {
             services.mic.stop()
             services.local.stop()
@@ -668,7 +701,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             speechFrom = null
         }
         recorder = rec
-        play()
+        if (playSound) play()
         return rec
     }
 
