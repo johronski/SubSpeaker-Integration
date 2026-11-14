@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-10-26, version **0.8.7**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.8.8**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -12,7 +12,7 @@ Integrera en **Velodyne SPL-1200R** (sub) med två **Genelec G Four** så att ba
 - **Rum:** 3 × 10 m, takhöjd antagen 2,4 m. Sub i hörnet. Genelec längs väggen, **18 cm från väggen bakom**.
 - **Velodyne:** fjärrkontroll med fas 0/90/180/270, VOLUME ±, MUTE (tystar bara subben – Genelecerna spelar vidare), EQ, NIGHT, förinställningar. Lågpass (LPF) ställs på subben, cirka 90 Hz.
 - **Genelec DIP:** Bass **−4 dB** (grupp B: omkopplare 3 = 1, 4 = 0), övrigt 0. Manualen rekommenderar −4 för rum med mycket efterklang.
-- **Mikrofoner:** telefonens inbyggda (ingen obearbetad ljudkälla). Velodynens mikrofon har en tvåpolig TS-kontakt och **syns inte** via USB-C-adaptern – den kräver en CTIA-headsetsplitter. Rekommenderat köp: **miniDSP UMIK-1** (fungerar med REW på Linux och troligen med telefonen via OTG-kabel) eller Dayton iMM-6C.
+- **Mikrofoner:** **miniDSP UMIK-1** finns sedan november 2026 och fungerar med telefonen via OTG. Telefonens inbyggda saknar obearbetad ljudkälla. Velodynens mikrofon har en tvåpolig TS-kontakt och **syns inte** via USB-C-adaptern – den kräver en CTIA-headsetsplitter. Rekommenderat köp: **miniDSP UMIK-1** (fungerar med REW på Linux och troligen med telefonen via OTG-kabel) eller Dayton iMM-6C.
 
 ## Vad mätningarna visat hittills
 
@@ -45,6 +45,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 **Uppspelning:** egen Chromecast-klient (CASTV2 över TLS port 8009, Default Media Receiver, porterad från RadioCast). Telefonen kör en ljudserver (NanoHTTPD, port 8089). Klienten ansluter automatiskt igen, gör ett nytt försök om uppspelningen inte startar och slår av mute. Uppspelning i telefonen sker via AudioTrack eller ExoPlayer.
 
+**Kalibreringsfil** (0.8.8, `audio/MicCalibration.kt`): läses in under Mikrofon i inställningarna. Den tolkar REW-formatet (frekvens och dB, med "Sens Factor" och "SERNO" i huvudet) och interpolerar i log-frekvens till kurvpunkterna. Värdet dras bort i `Multitone.curve`, `Multitone.rawCurve` och `SweepAnalyzer.analyze`. Korrigeringen är bara på när en extern mikrofon (USB eller sladd) spelar in; det kontrolleras när varje mätning startar. Sparade resultat får raden "Kalibrerad: …", och exporten innehåller `settings.micCalibration`. För jämförelser med samma mikrofon (positioner, faslägen) ändrar korrigeringen inget.
+
 **Lagring:** SharedPreferences (inställningar, guide, hälsokoll, uppspelning) och `filesDir/sweep.json` (svepkurvor med impulssvar).
 
 ## Bygga och släppa
@@ -59,7 +61,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 1. **Prova på riktigt:** gör en hälsokoll med alla tre delarna och skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
 2. **Gör om nivåsteget** och kontrollera trycken på subbens display.
 3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem. Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).
-4. **Stöd för kalibreringsfil** (UMIK-1 eller iMM-6C) när en mätmikrofon finns.
+4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8. Kontrollera med exporten att korrigeringen har rätt tecken (UMIK-1-filens värden ska dras bort).
 5. **Mikrofonhjälp:** visa en förklaring om TS/TRS-kontakter när bara den inbyggda mikrofonen hittas.
 6. Ingen ny funktion förrän punkt 1 är gjord.
 

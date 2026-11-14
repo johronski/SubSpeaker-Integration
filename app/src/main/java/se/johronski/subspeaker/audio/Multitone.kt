@@ -127,11 +127,11 @@ object Multitone {
         power(hp, hp.size - FRAME)
     }
 
-    /** Kurva på [SweepAnalyzer.FREQUENCIES] (dB) ur medeleffekt per bin, relativt mätljudet, 1/6-oktavsutjämnad. */
+    /** Kurva på [SweepAnalyzer.FREQUENCIES] (dB) ur medeleffekt per bin, relativt mätljudet, 1/6-oktavsutjämnad och korrigerad med [MicCalibration]. */
     fun curve(meanPower: DoubleArray): DoubleArray {
         val ref = refPower
         val h2 = DoubleArray(FRAME / 2) { k -> if (k in toneBins && ref[k] > 0) meanPower[k] / ref[k] else 0.0 }
-        return DoubleArray(SweepAnalyzer.FREQUENCIES.size) { i ->
+        return MicCalibration.apply(DoubleArray(SweepAnalyzer.FREQUENCIES.size) { i ->
             val fc = SweepAnalyzer.FREQUENCIES[i]
             val lo = fc * 2.0.pow(-1.0 / 12.0)
             val hi = fc * 2.0.pow(1.0 / 12.0)
@@ -142,7 +142,7 @@ object Multitone {
                 if (f in lo..hi) { sum += h2[k]; c++ }
             }
             10.0 * log10(sum / c.coerceAtLeast(1) + 1e-20)
-        }
+        })
     }
 
     private val hann: DoubleArray by lazy { DoubleArray(FRAME) { 0.5 - 0.5 * cos(2 * PI * it / FRAME) } }
@@ -163,7 +163,7 @@ object Multitone {
     fun rawCurve(meanPower: DoubleArray): DoubleArray {
         // Hann: en sinus med amplitud A ger toppen (A·N/4)² och sprids över ~1,5 bin (ekvivalent brusbandbredd).
         val scale = 16.0 / (FRAME.toDouble() * FRAME) / 1.5
-        return DoubleArray(SweepAnalyzer.FREQUENCIES.size) { i ->
+        return MicCalibration.apply(DoubleArray(SweepAnalyzer.FREQUENCIES.size) { i ->
             val fc = SweepAnalyzer.FREQUENCIES[i]
             val lo = fc * 2.0.pow(-1.0 / 12.0)
             val hi = fc * 2.0.pow(1.0 / 12.0)
@@ -173,7 +173,7 @@ object Multitone {
                 if (f in lo..hi) sum += meanPower[k]
             }
             10.0 * log10(sum * scale + 1e-20)
-        }
+        })
     }
 
     /** Effekt per bin för en ram ur x som börjar på [start]. */

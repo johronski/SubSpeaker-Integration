@@ -137,6 +137,7 @@ class SweepController(private val services: AppServices, private val store: Stor
         val useCast = settings.output == Output.CAST
         val source = services.micSource()
         val micDevice = services.micDevice()
+        services.refreshCalibration()
         val outDevice = services.outputDevice()
         val totalMs = delaySeconds * 1000L + repeats * (spec.durationMs + 4500)
         var elapsed = 0L

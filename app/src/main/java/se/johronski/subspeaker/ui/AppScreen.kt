@@ -450,6 +450,7 @@ private fun SetupSheet(
                     val k = Store.deviceKey(d)
                     ChoiceRow(MicMeter.shortName(d), settings.micKey == k) { services.settings.update { it.copy(micKey = k) } }
                 }
+                CalibrationSection(services, settings.micKey, inputs)
             }
             }
             Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Klar", fontSize = 17.sp) }
@@ -615,5 +616,48 @@ private fun MicIcon(color: androidx.compose.ui.graphics.Color) {
         drawArc(color, 0f, 180f, false, androidx.compose.ui.geometry.Offset(w * 0.22f, h * 0.22f), androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.50f), style = st)
         drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.72f), androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.92f), 1.8.dp.toPx())
         drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.32f, h * 0.92f), androidx.compose.ui.geometry.Offset(w * 0.68f, h * 0.92f), 1.8.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+    }
+}
+
+/** Kalibreringsfil för mätmikrofonen: läs in, visa vad den gör, ta bort. */
+@Composable
+private fun CalibrationSection(services: AppServices, micKey: String?, inputs: List<android.media.AudioDeviceInfo>) {
+    val cal by services.calibration.collectAsState()
+    var error by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) error = services.importCalibration(uri)
+    }
+    // Räknas om när valet av mikrofon eller listan över inkopplade ändras.
+    val external = remember(micKey, inputs, cal) { services.externalMicInUse() }
+
+    Spacer(Modifier.height(8.dp))
+    Label("Kalibreringsfil")
+    val c = cal
+    if (c == null) {
+        Muted("För en mätmikrofon som UMIK-1: välj filen för ditt serienummer (.txt). Ta 90°-filen om mikrofonen pekar mot taket, 0°-filen om den pekar mot högtalarna.")
+    } else {
+        val (lo, hi) = c.rangeInBand
+        Text(c.name, fontSize = 15.sp)
+        Muted(
+            buildString {
+                c.serial?.let { append("Serienummer $it. ") }
+                append(String.format(java.util.Locale.forLanguageTag("sv"), "Korrigerar %+.1f till %+.1f dB inom 20–300 Hz.", lo, hi))
+                if (!c.coversBand) append(" Filen täcker inte hela 20–300 Hz; ändvärdena används utanför.")
+            },
+        )
+        if (external) {
+            Notice("Används: kurvorna korrigeras när den inkopplade mikrofonen spelar in.", Tone.GOOD)
+        } else {
+            Notice("Används inte nu: den inbyggda mikrofonen spelar in. Filen gäller bara den inkopplade mikrofonen.", Tone.WARN)
+        }
+    }
+    error?.let { Notice(it, Tone.BAD) }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { error = null; picker.launch(arrayOf("text/*", "application/octet-stream", "*/*")) }) {
+            Text(if (c == null) "Läs in fil" else "Byt fil")
+        }
+        if (c != null) {
+            OutlinedButton(onClick = { error = null; services.clearCalibration() }) { Text("Ta bort") }
+        }
     }
 }

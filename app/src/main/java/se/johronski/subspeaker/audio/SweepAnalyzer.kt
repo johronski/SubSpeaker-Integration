@@ -112,6 +112,7 @@ object SweepAnalyzer {
             }
             10.0 * log10(sum / cnt.coerceAtLeast(1) + 1e-20)
         }
+        MicCalibration.apply(db)
 
         // Brus: en del av impulssvaret där rummets efterklang har klingat av.
         val nStart = d + (0.7 * FS).toInt()

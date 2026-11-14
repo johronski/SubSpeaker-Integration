@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import se.johronski.subspeaker.audio.Calibration
 import se.johronski.subspeaker.audio.LocalPlayer
+import se.johronski.subspeaker.audio.MicCalibration
 import se.johronski.subspeaker.audio.MicMeter
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.cast.CastController
@@ -61,6 +63,11 @@ class AppServices(private val context: Context) {
     private val _readings = MutableStateFlow<List<SavedReading>>(emptyList())
     val readings: StateFlow<List<SavedReading>> = _readings
 
+    private val _calibration = MutableStateFlow(loadCalibration())
+
+    /** Inläst kalibreringsfil, eller null. Används bara när en extern mikrofon spelar in, se [refreshCalibration]. */
+    val calibration: StateFlow<Calibration?> = _calibration
+
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<UiEvent> = _events
 
@@ -72,6 +79,7 @@ class AppServices(private val context: Context) {
         speaker.enabled = settings.value.voice
         cast.preferredName = settings.value.castName
         cast.onConnected = { name -> settings.update { it.copy(castName = name) } }
+        refreshCalibration()
         Thread {
             try {
                 server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
@@ -106,6 +114,62 @@ class AppServices(private val context: Context) {
 
     fun clearReadings() {
         _readings.value = emptyList()
+    }
+
+    // ---------- Kalibreringsfil för mätmikrofon ----------
+
+    private fun loadCalibration(): Calibration? {
+        val text = store.readFile(CAL_FILE) ?: return null
+        return try {
+            Calibration.parse(text, store.get(CAL_NAME_KEY) ?: "Kalibreringsfil")
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Läser in en kalibreringsfil. Returnerar ett felmeddelande, eller null om det gick bra. */
+    fun importCalibration(uri: android.net.Uri): String? {
+        return try {
+            val name = context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "Kalibreringsfil"
+            val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                // En kalibreringsfil är några tiotal kB; större är fel fil.
+                val bytes = input.readBytes()
+                if (bytes.size > 2_000_000) return "Filen är för stor för att vara en kalibreringsfil."
+                String(bytes, Charsets.UTF_8)
+            } ?: return "Filen gick inte att öppna."
+            val cal = Calibration.parse(text, name)
+            store.writeFile(CAL_FILE, text)
+            store.put(CAL_NAME_KEY, name)
+            _calibration.value = cal
+            refreshCalibration()
+            null
+        } catch (e: IllegalArgumentException) {
+            e.message
+        } catch (e: Exception) {
+            "Filen gick inte att läsa: ${e.message}"
+        }
+    }
+
+    fun clearCalibration() {
+        java.io.File(context.filesDir, CAL_FILE).delete()
+        _calibration.value = null
+        refreshCalibration()
+    }
+
+    /** Mikrofonen som spelar in: användarens val, annars den inkopplade (Android tar den före den inbyggda). */
+    fun effectiveMic(): AudioDeviceInfo? =
+        micDevice() ?: mic.inputDevices().firstOrNull { it.type != AudioDeviceInfo.TYPE_BUILTIN_MIC }
+
+    /** true om inspelningen görs med en inkopplad mikrofon (USB eller sladd), dvs. en som kalibreringsfilen kan gälla. */
+    fun externalMicInUse(): Boolean = effectiveMic()?.type in EXTERNAL_MICS
+
+    /**
+     * Slår på korrigeringen om en fil finns och en extern mikrofon används, annars av.
+     * Anropas när en mätning startar, så att den inbyggda mikrofonen aldrig korrigeras med fel fil.
+     */
+    fun refreshCalibration() {
+        MicCalibration.active = _calibration.value?.takeIf { externalMicInUse() }
     }
 
     // ---------- Val av enheter ----------
@@ -165,4 +229,15 @@ class AppServices(private val context: Context) {
     }
 
     fun signalUrl(path: String): String? = localIp()?.let { "http://$it:${SignalServer.PORT}/$path" }
+
+    private companion object {
+        const val CAL_FILE = "mic_calibration.txt"
+        const val CAL_NAME_KEY = "micCalibrationName"
+        val EXTERNAL_MICS = setOf(
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        )
+    }
 }

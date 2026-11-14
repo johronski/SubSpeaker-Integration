@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import se.johronski.subspeaker.audio.Diagnosis
 import se.johronski.subspeaker.audio.LiveSpectrum
+import se.johronski.subspeaker.audio.MicCalibration
 import se.johronski.subspeaker.audio.Multitone
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SignalSpec
@@ -211,9 +212,14 @@ class HealthController(private val services: AppServices, private val store: Sto
         val curves = linkedMapOf("Nu" to c)
         l.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { curves[it.label] = it.db }
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
-        services.guide.saveResult(SavedResult(date, listOf((if (_state.value.liveRaw) "Utan mätljud (det mikrofonen hörde)" else "Med mätljud") + ", ${l.speed.label.lowercase(Locale.ROOT)} medelvärde"), curves, "Live-kurva"))
+        val lines = listOf((if (_state.value.liveRaw) "Utan mätljud (det mikrofonen hörde)" else "Med mätljud") + ", ${l.speed.label.lowercase(Locale.ROOT)} medelvärde") + calibrationNote()
+        services.guide.saveResult(SavedResult(date, lines, curves, "Live-kurva"))
         services.notify("Sparat i Sparade resultat")
     }
+
+    /** Rad till Sparade resultat om mikrofonen var kalibrerad, så att kalibrerade och okalibrerade kurvor inte blandas ihop. */
+    private fun calibrationNote(): List<String> =
+        MicCalibration.active?.let { listOf("Kalibrerad: " + it.describe()) } ?: emptyList()
 
     private fun shifted(ex: List<IntRange>, base: Int): List<IntRange> =
         ex.map { r -> (r.first - base).coerceAtLeast(0)..(if (r.last == Int.MAX_VALUE) Int.MAX_VALUE else r.last - base) }
@@ -473,7 +479,7 @@ class HealthController(private val services: AppServices, private val store: Sto
         s.together?.let { curves["Tillsammans"] = it }
         s.genelec?.let { curves["Genelec ensam"] = it }
         s.sub?.let { curves["Sub ensam"] = it }
-        val lines = listOf(rep.headline) + s.changes + rep.findings.map { f -> (if (f.action == null) "Info: " else "Fynd: ") + f.title }
+        val lines = listOf(rep.headline) + s.changes + rep.findings.map { f -> (if (f.action == null) "Info: " else "Fynd: ") + f.title } + calibrationNote()
         services.guide.upsertResult(SavedResult(date, lines, curves, "Hälsokoll", id))
         set { it.copy(resultId = id, lastDate = date.substringBefore(" "), lastSummary = summary(it)) }
     }
@@ -694,6 +700,7 @@ class HealthController(private val services: AppServices, private val store: Sto
             services.local.stop()
             services.playback.clearSpec()
         }
+        services.refreshCalibration()
         val rec = SweepRecorder()
         rec.start(services.micSource(), services.micDevice())
         synchronized(spoken) {

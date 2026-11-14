@@ -42,6 +42,17 @@ object Export {
                     .put("castVolume", services.cast.state.value.volume ?: JSONObject.NULL)
                     .put("method", settings.method.label)
                     .put("micSource", services.micSource().label)
+                    .put(
+                        "micCalibration",
+                        services.calibration.value?.let { c ->
+                            JSONObject()
+                                .put("file", c.name)
+                                .put("serial", c.serial ?: JSONObject.NULL)
+                                .put("sensFactorDb", c.sensDb ?: JSONObject.NULL)
+                                .put("appliedNow", se.johronski.subspeaker.audio.MicCalibration.active === c)
+                                .put("correctionDbOnGrid", Store.doubles(c.onGrid))
+                        } ?: JSONObject.NULL,
+                    )
                     .put("genelecBass", guide.genelecBass)
                     .put("subDisplayBaseline", guide.subBaseline ?: JSONObject.NULL)
                     .put("targetBalance", guide.targetBalance),
