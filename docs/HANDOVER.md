@@ -36,7 +36,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 3. *Stämapparat*: fas (appen säger vilket läge du ska trycka och mäter alla fyra), lågpass och nivå, med levande kurva.
 4. *Efterkontroll*. Allt sparas automatiskt i **Sparade resultat**, där resultat kan visas och jämföras.
 
-**Menyn:** uppspelning, mikrofon och volym; röstguide; Hälsokoll (guidad mätning); Sparade resultat (av som standard; mätningen bortser från tiden då rösten talar); Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
+**Menyn:** uppspelning, mikrofon och volym; röstguide (av som standard; mätningen bortser från tiden då rösten talar); Hälsokoll (guidad mätning); Sparade resultat; Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
 
 **Mätteknik:**
 - `audio/Multitone.kt`: multiton 18–680 Hz (till 0.8.8: 350 Hz), period 65 536 sampel vid 48 kHz (1,37 s), amplitud ∝ 1/√f. Analys per period efter nedsampling till 3 kHz (avskärning 1000 Hz, till 0.8.8: 700 Hz). Högpass vid 12 Hz mot hanteringsmuller. Signal och glapp bedöms inom tonbandet. 1/6-oktavsutjämning på 1/24-oktavspunkter 20–600 Hz (119 punkter; de 94 första är den gamla kurvan 20–300 Hz, så `Store.curve` fyller ut gamla sparade kurvor med NaN, som inte ritas).
