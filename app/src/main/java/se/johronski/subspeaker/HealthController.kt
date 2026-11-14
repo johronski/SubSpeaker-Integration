@@ -237,8 +237,12 @@ class HealthController(private val services: AppServices, private val store: Sto
     }
 
     /** Rad till Sparade resultat om mikrofonen var kalibrerad, så att kalibrerade och okalibrerade kurvor inte blandas ihop. */
-    private fun calibrationNote(): List<String> =
-        MicCalibration.active?.let { listOf("Kalibrerad: " + it.describe()) } ?: emptyList()
+    private fun calibrationNote(): List<String> {
+        val mic = services.effectiveMic()?.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Inbyggd mikrofon"
+        val external = services.externalMicInUse()
+        return listOf("Mikrofon: " + (if (external) mic else "inbyggd")) +
+            (MicCalibration.active?.let { listOf("Kalibrerad: " + it.describe()) } ?: listOf("Okalibrerad"))
+    }
 
     private fun shifted(ex: List<IntRange>, base: Int): List<IntRange> =
         ex.map { r -> (r.first - base).coerceAtLeast(0)..(if (r.last == Int.MAX_VALUE) Int.MAX_VALUE else r.last - base) }

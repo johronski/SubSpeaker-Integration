@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.8.10**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.8.11**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -52,6 +52,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 **Export (0.8.10):** JSON-exporten innehåller nu också `savedResults` (allt i Sparade resultat, med kurvor och raden "Kalibrerad: …"). Före 0.8.10 kom bara den senaste hälsokollen och svepkurvorna med, inte live-jämförelser.
 
 **Kalibreringen kontrollerad (2026-11-14):** `correctionDbOnGrid` stämmer med UMIK-1-filen 7211764.txt (+0,47 dB vid 20 Hz, högst +0,84 dB vid 29 Hz, +0,07 dB vid 600 Hz). Tecknet är rätt: värdena dras bort.
+
+**Mikrofonrad (0.8.11):** varje post i Sparade resultat får "Mikrofon: …" och "Kalibrerad: …"/"Okalibrerad", eftersom de första live-jämförelserna (2026-11-14 17:19) av misstag gjordes med inbyggd mikrofon utan att det syntes.
 
 **Lagring:** SharedPreferences (inställningar, guide, hälsokoll, uppspelning) och `filesDir/sweep.json` (svepkurvor med impulssvar).
 
