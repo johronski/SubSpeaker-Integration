@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.9.0**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.9.1**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -35,6 +35,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - Det gamla ojämnhetstalet var okänsligt för smala djupa hål (10 dB-hål vid 85 Hz ändrade talet 2,75 → 2,69) och räknade en jämn lutning som jämn. Ersatt i 0.9.0, se *Mått*.
 - Balansmålet +3 dB är rimligt: en Harman-hylla på 5–7 dB motsvarar ungefär +2,5 … +3,5 dB i appens balansmått (bandet 100–250 Hz ligger delvis på hyllan). Tidigare påstående om att +3 är för lågt var fel.
 
+**2026-11-14 19:39, Jämförelse 3 (Genelec ensam, subben av, via Velodynens högpass):** 130–600 Hz inom ±4 dB, svag topp 330–550 Hz (+2…+4 dB, samma lutning som i närfält → högtalaren/Bass −4, inte rummet). Under 130 Hz 10–16 dB under målet (högpass 80 Hz + Bass −4 + hål 90–120 Hz). Wavelet-fil gjord (`SubSpeaker Genelec J3.txt`, GraphicEQ, bara sänkning ≤ 3,8 dB vid 330–550 Hz, 0 under 300 Hz). Rekommendation: prova Genelec Bass 0 i stället för EQ. Wavelets import ligger i AutoEq-menyn (bara hörlurar); EQ gäller bara ljud via telefonen.
+
 **2026-11-14 18:54, platser med UMIK-1 (Live-kurva, kalibrerad):** lampetten, pianot vänster, pianot, pianot höger, soffan.
 - Nya måtten (målbalans +3, hylla G = 5,5 dB): ojämnhet lampetten 3,1, pianot vänster 3,4, pianot 3,1, pianot höger 2,9, **soffan 5,5**. Soffan har lutning −5,5 dB/okt mot målet (≈ 10 dB för mycket djupbas) och en bred topp +9 dB vid 30 Hz. Det gamla måttet gav soffan 2,80, lika bra som de andra – samma fel gjorde att "soffan vänster" såg jämnast ut 17:19.
 - De fyra andra platserna skiljer sig lite (0,4 dB i ojämnhet) – går inte att rangordna.
@@ -59,6 +61,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - `audio/LiveSpectrum.kt`: exponentiellt medelvärde (Snabb 1,5 s, Normal 4 s, Lugn 12 s). Råläge med Hann-fönster för musik.
 - `audio/SweepAnalyzer.kt`: äldre svepmätning (10–600 Hz, 8 s) med dekonvolution och impulssvar. Används i Fri mätning.
 - **Mått (0.9.0, `audio/BassMetrics.kt`, förklaras i appen under Om SubSpeaker):** 25–200 Hz mot målkurvan T(f) = G/(1+(f/105)²), där G väljs så att T:s `balance` = målbalansen (+3 dB → G ≈ 5,5 dB). Felkurva e = L − T − medel. **Ojämnhet** = SD(e). **Lutning** = linje genom e mot log₂ f (dB/okt, minus = mer djupbas än målet). **NBD** = medel över halvoktavband av medel |L − bandmedel| (Olive 2004). **Största topp/hål** i e med bredd (punkter över halva värdet /24). **MSV** = medel 30–150 Hz av variansen mellan platser efter nivåjustering (medel 30–200 Hz) (Welti & Devantier 2006). SD + lutning följer Olives hörlursmodell (2018); vikterna används inte. Ojämnheten ersätter `SweepAnalyzer.deviation` överallt: diagnos, mätare, fasval, lågpass, Jämför platser, Fri mätning (där med målbalans +3). `balance` (25–63 mot 100–250 Hz) används som förut för nivåbeskedet. Testerna (`BassMetricsTest`) jämför mot en oberoende Python-version på riktiga kurvor.
+- **Referenslinje (0.9.1):** i Live-kurva och i kurvvisaren (diagnos, Sparade resultat) ritas målkurvan streckad grön med band ±3 dB, 25–200 Hz, i nivå med Nu-kurvan (respektive första kurvan) via `BassMetrics.reference` – samma förskjutning som måtten. Slås av med knappen Målkurva.
 - Målbalansen (+2 … +6 dB) väljs på sidan Om SubSpeaker och sparas i guiden. Exporten har `metrics` per kurva i `savedResults` (och `msvDb2` för Live-kurva) samt `healthCheck.metricsTogether/metricsAfter`.
 - **Diagnosgränser (obekräftade):** utsläckning om allt tillsammans är mer än 3 dB under Genelec ensam (45–160 Hz) eller förlusten mot effektsumman är över 2,5 dB. Nivå om avvikelsen från målet är över 2 dB. Lågpass om mötesfrekvensen är över 115 eller under 60 Hz. Rumshål om dippen i Genelec ensam är mer än 6 dB. Mätare: 5 dB ojämnhet = 0, 1,5 dB = 1. Ord: under 2,5 dB "Jämnt", under 3,8 dB "OK" (samma gränser med nya måttet; de bra platserna 2026-11-14 ligger på 2,9–3,4, soffan 5,5).
 

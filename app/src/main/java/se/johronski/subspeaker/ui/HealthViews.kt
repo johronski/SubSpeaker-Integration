@@ -178,6 +178,18 @@ fun Sparkline(values: List<Double>, modifier: Modifier = Modifier, higherIsBette
     }
 }
 
+/** Målkurvan som streckad referenslinje med band ±3 dB, i nivå med [db]. Null om kurvan saknar värden 25–200 Hz. */
+internal fun targetChartCurve(db: DoubleArray, targetBalance: Double): ChartCurve? =
+    se.johronski.subspeaker.audio.BassMetrics.reference(db, targetBalance)?.let { r ->
+        ChartCurve(
+            TARGET_LABEL, r,
+            band = DoubleArray(r.size) { r[it] - 3.0 } to DoubleArray(r.size) { r[it] + 3.0 },
+            color = Good, dashed = true,
+        )
+    }
+
+internal const val TARGET_LABEL = "Mål ±3 dB"
+
 /** En kurva i kurvvisaren. */
 class ExplorerCurve(
     val label: String,
@@ -226,9 +238,20 @@ fun CurveExplorer(
             )
         }
     }
+    var showTarget by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
+    val guide by services.guide.state.collectAsState()
+    val target = curves.firstOrNull()?.let { targetChartCurve(it.db, guide.targetBalance) }
+    if (target != null) {
+        androidx.compose.material3.FilterChip(
+            selected = showTarget,
+            onClick = { showTarget = !showTarget },
+            label = { androidx.compose.material3.Text("Målkurva") },
+        )
+    }
     val visible = curves.filter { on[it.label] == true }
     SweepChart(
-        visible.map { ChartCurve(it.label, it.db, color = it.color, dashed = it.dashed, thick = it.thick) },
+        (if (showTarget && target != null) listOf(target) else emptyList()) +
+            visible.map { ChartCurve(it.label, it.db, color = it.color, dashed = it.dashed, thick = it.thick) },
         refDb = ref,
         crossover = crossover,
         numbered = numbered,
@@ -252,6 +275,9 @@ fun CurveExplorer(
         }
     } else {
         Muted("Tryck i diagrammet för att välja en frekvens och lyssna på den.")
+    }
+    if (showTarget && target != null) {
+        Muted("Grönt streck: målkurvan i nivå med ${curves.first().label}, 25–200 Hz. Inom det gröna bandet (±3 dB) är bra; långt utanför är det som syns i ojämnheten.")
     }
     curves.forEach { c ->
         androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.Top) {
@@ -289,7 +315,14 @@ internal fun snapshotColor(label: String): Color = when (label) {
 fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johronski.subspeaker.HealthController.Live) {
     var picked by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Double?>(null) }
     val playback by services.playback.state.collectAsState()
+    val guide by services.guide.state.collectAsState()
+    var showTarget by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.FilterChip(
+            selected = showTarget,
+            onClick = { showTarget = !showTarget },
+            label = { androidx.compose.material3.Text("Målkurva") },
+        )
         se.johronski.subspeaker.audio.LiveSpectrum.Speed.entries.forEach { sp ->
             androidx.compose.material3.FilterChip(
                 selected = live.speed == sp,
@@ -317,7 +350,10 @@ fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johro
             },
         )
     }
+    // Referensen följer Nu-kurvan; finns den inte, den senast sparade jämförelsen.
+    val refSource = live.curve ?: live.snapshots.lastOrNull()?.db
     val curves = buildList {
+        if (showTarget) refSource?.let { targetChartCurve(it, guide.targetBalance) }?.let { add(it) }
         live.snapshots.forEach { add(ChartCurve(it.name, it.db, color = snapshotColor(it.label))) }
         live.startCurve?.let { add(ChartCurve("Start", it, color = Color(0xFF8A9294), dashed = true)) }
         live.curve?.let { add(ChartCurve("Nu", it, color = Accent, thick = true)) }
@@ -343,6 +379,9 @@ fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johro
         )
     } else {
         Muted("Tryck i diagrammet för att läsa av nivån vid en frekvens.")
+    }
+    if (showTarget && refSource != null) {
+        Muted("Grönt streck: målkurvan i nivå med Nu-kurvan, 25–200 Hz. Ju mer av kurvan som ligger i det gröna bandet (±3 dB), desto bättre.")
     }
     androidx.compose.foundation.layout.FlowRow(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),

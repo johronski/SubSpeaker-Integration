@@ -100,6 +100,18 @@ class BassMetricsTest {
     }
 
     @Test
+    fun referenceFollowsCurveLevel() {
+        val ref = BassMetrics.reference(PIANO, 3.0)!!
+        val band = F.indices.filter { F[it] in 25.0..200.0 }
+        // Medel av kurva minus referens är 0 i området, och ojämnheten är spridningen runt referensen.
+        assertEquals(0.0, band.map { PIANO[it] - ref[it] }.average(), 1e-9)
+        val sd = kotlin.math.sqrt(band.map { (PIANO[it] - ref[it]).let { d -> d * d } }.average())
+        assertEquals(BassMetrics.analyze(PIANO, 3.0)!!.sdDb, sd, 1e-9)
+        assertTrue(ref[0].isNaN())
+        assertTrue(ref[F.indices.first { F[it] > 210.0 }].isNaN())
+    }
+
+    @Test
     fun spatialVariance() {
         val all = listOf(LAMPETTE, PIANO_L, PIANO, PIANO_R, SOFA)
         assertEquals(5.859, BassMetrics.msv(all)!!, 0.001)

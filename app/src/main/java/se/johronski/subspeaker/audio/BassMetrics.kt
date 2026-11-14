@@ -96,6 +96,17 @@ object BassMetrics {
         )
     }
 
+    /**
+     * Målkurvan flyttad till kurvans nivå (samma förskjutning som i [analyze]), som referenslinje i diagram.
+     * Bara 25–200 Hz, där måtten räknas; övriga punkter är NaN. Null om kurvan saknar värden där.
+     */
+    fun reference(db: DoubleArray, targetBalance: Double = DEFAULT_TARGET_BALANCE): DoubleArray? {
+        if (db.size < F.size || BAND.any { !db[it].isFinite() }) return null
+        val t = target(shelfCached(targetBalance))
+        val off = BAND.map { db[it] - t[it] }.average()
+        return DoubleArray(F.size) { if (F[it] in F_LOW..F_HIGH) t[it] + off else Double.NaN }
+    }
+
     /** Spridningen (SD) mot målkurvan, eller NaN. Ersätter det gamla måttet [SweepAnalyzer.deviation]. */
     fun unevenness(db: DoubleArray, targetBalance: Double = DEFAULT_TARGET_BALANCE): Double =
         analyze(db, targetBalance)?.sdDb ?: Double.NaN
