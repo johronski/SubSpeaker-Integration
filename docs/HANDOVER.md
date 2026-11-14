@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.8.9**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.8.10**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -12,7 +12,7 @@ Integrera en **Velodyne SPL-1200R** (sub) med två **Genelec G Four** så att ba
 - **Rum:** 3 × 10 m, takhöjd antagen 2,4 m. Sub i hörnet. Genelec längs väggen, **18 cm från väggen bakom**.
 - **Velodyne:** fjärrkontroll med fas 0/90/180/270, VOLUME ±, MUTE (tystar bara subben – Genelecerna spelar vidare), EQ, NIGHT, förinställningar. Lågpass (LPF) ställs på subben, cirka 90 Hz.
 - **Genelec DIP:** Bass **−4 dB** (grupp B: omkopplare 3 = 1, 4 = 0), övrigt 0. Manualen rekommenderar −4 för rum med mycket efterklang.
-- **Mikrofoner:** **miniDSP UMIK-1** finns sedan november 2026 och fungerar med telefonen via OTG. Telefonens inbyggda saknar obearbetad ljudkälla. Velodynens mikrofon har en tvåpolig TS-kontakt och **syns inte** via USB-C-adaptern – den kräver en CTIA-headsetsplitter. Rekommenderat köp: **miniDSP UMIK-1** (fungerar med REW på Linux och troligen med telefonen via OTG-kabel) eller Dayton iMM-6C.
+- **Mikrofoner:** **miniDSP UMIK-1** finns sedan november 2026 och fungerar med telefonen via OTG. Telefonens inbyggda saknar obearbetad ljudkälla. Velodynens mikrofon har en tvåpolig TS-kontakt och **syns inte** via USB-C-adaptern – den kräver en CTIA-headsetsplitter.
 
 ## Vad mätningarna visat hittills
 
@@ -30,7 +30,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 **Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet 30–200 Hz (`SweepAnalyzer.deviation`) som tal, och den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
 
-**Hälsokoll – i menyn** (`HealthController`, `ui/HealthScreens.kt`): (`HealthController`, `ui/HealthScreens.kt`):
+**Hälsokoll – i menyn** (`HealthController`, `ui/HealthScreens.kt`):
 1. *Kolla nu*: tre delar i valfri ordning med rörlig mikrofon och periodiskt rosa brus: Allt tillsammans, Genelec ensam (MUTE), Sub ensam (Genelecerna av, valfri).
 2. *Diagnos* (`audio/Diagnosis.kt`): utsläckning (fas), nivå, lågpass och rumshål, med "Visa kurvor".
 3. *Stämapparat*: fas (appen säger vilket läge du ska trycka och mäter alla fyra), lågpass och nivå, med levande kurva.
@@ -49,6 +49,10 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 **Kalibreringsfil** (0.8.8, `audio/MicCalibration.kt`): läses in under Mikrofon i inställningarna. Den tolkar REW-formatet (frekvens och dB, med "Sens Factor" och "SERNO" i huvudet) och interpolerar i log-frekvens till kurvpunkterna. Värdet dras bort i `Multitone.curve`, `Multitone.rawCurve` och `SweepAnalyzer.analyze`. Korrigeringen är bara på när en extern mikrofon (USB eller sladd) spelar in; det kontrolleras när varje mätning startar. Sparade resultat får raden "Kalibrerad: …", och exporten innehåller `settings.micCalibration`. För jämförelser med samma mikrofon (positioner, faslägen) ändrar korrigeringen inget.
 
+**Export (0.8.10):** JSON-exporten innehåller nu också `savedResults` (allt i Sparade resultat, med kurvor och raden "Kalibrerad: …"). Före 0.8.10 kom bara den senaste hälsokollen och svepkurvorna med, inte live-jämförelser.
+
+**Kalibreringen kontrollerad (2026-11-14):** `correctionDbOnGrid` stämmer med UMIK-1-filen 7211764.txt (+0,47 dB vid 20 Hz, högst +0,84 dB vid 29 Hz, +0,07 dB vid 600 Hz). Tecknet är rätt: värdena dras bort.
+
 **Lagring:** SharedPreferences (inställningar, guide, hälsokoll, uppspelning) och `filesDir/sweep.json` (svepkurvor med impulssvar).
 
 ## Bygga och släppa
@@ -63,7 +67,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 1. **Prova på riktigt:** jämför några lyssningspositioner i Live-kurva med UMIK-1 och spara i Sparade resultat; gör också en hälsokoll med alla tre delarna. Skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
 2. **Gör om nivåsteget** och kontrollera trycken på subbens display.
 3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem (svepet slutar vid 600 Hz, så kurvans översta punkt är osäker där). Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).
-4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8. Kontrollera med exporten att korrigeringen har rätt tecken (UMIK-1-filens värden ska dras bort).
+4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8, tecken och storlek kontrollerade mot riktig fil 2026-11-14.
 5. **Mikrofonhjälp:** visa en förklaring om TS/TRS-kontakter när bara den inbyggda mikrofonen hittas.
 6. Ingen ny funktion förrän punkt 1 är gjord.
 

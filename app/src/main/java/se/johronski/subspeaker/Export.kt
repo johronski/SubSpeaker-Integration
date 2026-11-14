@@ -85,6 +85,19 @@ object Export {
                 },
             )
             .put("curves", JSONArray().also { a -> sweep.curves.forEach { a.put(SweepController.toJson(it)) } })
+            .put(
+                "savedResults",
+                JSONArray().also { a ->
+                    guide.history.forEach { r ->
+                        val cj = JSONObject()
+                        r.curves.forEach { (k, v) -> cj.put(k, Store.doubles(v)) }
+                        a.put(
+                            JSONObject().put("id", r.id).put("date", r.date).put("source", r.source)
+                                .put("lines", Store.strings(r.lines)).put("curves", cj),
+                        )
+                    }
+                },
+            )
     }
 
     /** Skriver filen och öppnar Androids delningsmeny. */
