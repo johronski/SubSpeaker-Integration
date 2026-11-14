@@ -26,6 +26,14 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 **Ingen mätning med hälsokollen (0.8.x) har skickats än.** Gränser och diagnosregler är därför obekräftade.
 
+**2026-11-14 med UMIK-1 (kalibrerad):**
+- Kalibreringen kontrollerad mot 7211764.txt: rätt tecken och storlek (+0,1 … +0,8 dB).
+- **Närfält bekräftar att appen mäter rätt:** Genelec 2 cm slät 50–600 Hz (stiger ~6 dB från 100 till 500 Hz, från Velodynens högpass och Bass −4), sub 1 cm plan 20–70 Hz och faller ~17 dB/okt, lågpass runt 90–95 Hz. Båda ~−6 dB runt 95–100 Hz → delningen hänger ihop. **Ingen 120 Hz-dipp i närfält, alltså är den rummet/platsen.**
+- Hälsokollen 2026-10-20 (inbyggd mikrofon): allt tillsammans 1–2,5 dB *över* effektsumman 76–127 Hz → ingen utsläckning. Dippen vid 120 Hz finns i Genelec ensam.
+- Platsjämförelse 17:19 gjordes av misstag med **inbyggd mikrofon** (preliminärt): soffan vänster jämnast (2,7 dB) och nästan utan 120 Hz-dipp; Nu 3,4, mitten 2 m 3,2, lampetthöjd 3,1. Hypotes: breddmod runt 114 Hz (rummet 3 m), hål ~75 cm från långväggarna.
+- Inbyggd mikrofon dämpar basen kraftigt och ger lägre (bättre) ojämnhet än UMIK-1 (3,2 mot 4,0 på samma plats). Jämför aldrig mellan mikrofonerna.
+- Ojämnhetstalet är okänsligt för smala djupa hål (10 dB-hål vid 85 Hz ändrade talet 2,75 → 2,69). Balansmålet +3 dB är troligen för lågt; beskedet "djupbasen 3 dB för stark" ska inte följas utan lyssning.
+
 ## Appen i dag (0.8.9)
 
 **Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet 30–200 Hz (`SweepAnalyzer.deviation`) som tal, och den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
@@ -66,7 +74,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 ## Öppna punkter, i föreslagen ordning
 
-1. **Prova på riktigt:** jämför några lyssningspositioner i Live-kurva med UMIK-1 och spara i Sparade resultat; gör också en hälsokoll med alla tre delarna. Skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
+1. **Nästa gång:** mät om de fyra platserna (Nu, mitten 2 m, soffan vänster, lampetthöjd) med UMIK-1 och gärna i sidled mot rummets mitt. Kontrollera "Mikrofon: …" och "Kalibrerad" i Sparade resultat, skicka JSON-exporten. Bekräfta om soffan vänster är jämnast.
+1b. **Prova på riktigt (tidigare punkt):** jämför några lyssningspositioner i Live-kurva med UMIK-1 och spara i Sparade resultat; gör också en hälsokoll med alla tre delarna. Skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
 2. **Gör om nivåsteget** och kontrollera trycken på subbens display.
 3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem (svepet slutar vid 600 Hz, så kurvans översta punkt är osäker där). Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).
 4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8, tecken och storlek kontrollerade mot riktig fil 2026-11-14.
