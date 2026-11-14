@@ -44,7 +44,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - MSV fem platser 5,9 dB², utan soffan 4,3 dB².
 - Hälsokollens två kurvor (före/efter) har olika hål (135 mot 85 Hz) utan ändrad inställning – rörlig mikrofon ger viss slumpvariation.
 
-## Appen i dag (0.9.0)
+## Appen i dag (0.9.1)
 
 **Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet mot målkurvan (`BassMetrics`) som tal, en rad med lutning, NBD och största hål, och MSV mellan platserna. Den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
 
