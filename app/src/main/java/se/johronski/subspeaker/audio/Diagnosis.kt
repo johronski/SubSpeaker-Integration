@@ -31,11 +31,13 @@ object Diagnosis {
         val findings: List<Finding>,
         /** Bra saker som inte behöver åtgärdas. */
         val good: List<String>,
-        /** Jämnhet (dB, lägre är bättre) för allt tillsammans. */
+        /** Ojämnhet (dB, lägre är bättre) för allt tillsammans: spridningen mot målkurvan, se [BassMetrics]. */
         val unevenDb: Double,
         val balanceDb: Double,
         /** Frekvensen där sub och Genelec möts, om sub ensam är mätt. */
         val crossoverHz: Double?,
+        /** Alla mått mot målkurvan för allt tillsammans. */
+        val metrics: BassMetrics.Result? = null,
     ) {
         val actionable: List<Finding> get() = findings.filter { it.action != null }
 
@@ -87,7 +89,8 @@ object Diagnosis {
     fun diagnose(together: DoubleArray, genelec: DoubleArray, sub: DoubleArray?, targetBalance: Double): Report {
         val findings = mutableListOf<Finding>()
         val good = mutableListOf<String>()
-        val uneven = SweepAnalyzer.deviation(together)
+        val metrics = BassMetrics.analyze(together, targetBalance)
+        val uneven = metrics?.sdDb ?: Double.NaN
         val balance = SweepAnalyzer.balance(together)
 
         // 1. Utsläckning: med subben på blir det svagare än med Genelec ensam,
@@ -197,12 +200,12 @@ object Diagnosis {
             }
         }
 
-        return Report(findings.sortedByDescending { it.impact }, good, uneven, balance, xo)
+        return Report(findings.sortedByDescending { it.impact }, good, uneven, balance, xo, metrics)
     }
 
     // ---------- Stämapparaten ----------
 
-    /** Visarens läge 0–1 ur jämnheten (dB): 5 dB eller mer = 0, 1,5 dB eller mindre = 1. */
+    /** Visarens läge 0–1 ur ojämnheten (dB, [BassMetrics.Result.sdDb]): 5 dB eller mer = 0, 1,5 dB eller mindre = 1. */
     fun gauge(unevenDb: Double): Double = ((5.0 - unevenDb) / 3.5).coerceIn(0.0, 1.0)
 
     fun gaugeWord(unevenDb: Double): String = when {

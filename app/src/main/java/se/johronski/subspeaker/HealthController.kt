@@ -12,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import se.johronski.subspeaker.audio.BassMetrics
 import se.johronski.subspeaker.audio.Diagnosis
 import se.johronski.subspeaker.audio.LiveSpectrum
 import se.johronski.subspeaker.audio.MicCalibration
@@ -552,7 +553,8 @@ class HealthController(private val services: AppServices, private val store: Sto
                     val data = rec.tail(5 * Multitone.FRAME)
                     val base = size - data.size
                     val r = Multitone.analyze(data, 0, 3, shifted(excluded(), base)) ?: continue
-                    val uneven = SweepAnalyzer.deviation(r.db)
+                    val uneven = BassMetrics.unevenness(r.db, target)
+                    if (!uneven.isFinite()) continue
                     val bal = SweepAnalyzer.balance(r.db)
                     set {
                         it.copy(
@@ -610,7 +612,7 @@ class HealthController(private val services: AppServices, private val store: Sto
                     while (rec.size < mark + 5 * Multitone.FRAME) delay(250)
                     val data = rec.snapshot()
                     val r = Multitone.analyze(data, mark, 3, excluded())
-                    if (r != null) results[ph] = SweepAnalyzer.deviation(r.db)
+                    if (r != null) BassMetrics.unevenness(r.db, target).takeIf { it.isFinite() }?.let { results[ph] = it }
                     set {
                         it.copy(
                             phaseResults = results.toMap(),

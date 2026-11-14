@@ -110,7 +110,7 @@ fun AppScreen(services: AppServices) {
     val playback by services.playback.state.collectAsState()
     val mic by services.mic.state.collectAsState()
 
-    // 0 = Live-kurva (startsida), 1 = toner, 2 = fri mätning, 3 = felsökning, 5 = hälsokoll.
+    // 0 = Live-kurva (startsida), 1 = toner, 2 = fri mätning, 3 = felsökning, 4 = om appen, 5 = hälsokoll.
     var tool by rememberSaveable { mutableIntStateOf(TOOL_LIVE) }
     var menu by remember { mutableStateOf(false) }
     androidx.activity.compose.BackHandler(enabled = tool != TOOL_LIVE) { tool = TOOL_LIVE }
@@ -185,6 +185,7 @@ fun AppScreen(services: AppServices) {
         1 -> "Lyssna på toner"
         2 -> "Fri mätning"
         3 -> "Felsökning och export"
+        TOOL_ABOUT -> "Om SubSpeaker"
         else -> ""
     }
 
@@ -257,6 +258,8 @@ fun AppScreen(services: AppServices) {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Lyssna på toner") }, onClick = { menu = false; tool = 1 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Fri mätning") }, onClick = { menu = false; tool = 2 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Felsökning och export") }, onClick = { menu = false; tool = 3 })
+                            HorizontalDivider(color = Line)
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("Om SubSpeaker och måtten") }, onClick = { menu = false; tool = TOOL_ABOUT })
                         }
                     }
                 }
@@ -287,6 +290,7 @@ fun AppScreen(services: AppServices) {
                     1 -> ListenScreen(services, setup)
                     2 -> MeasureScreen(services, setup)
                     3 -> TroubleshootScreen(services, setup)
+                    TOOL_ABOUT -> AboutScreen(services)
                     else -> LiveToolScreen(services, setup)
                 }
                 Spacer(Modifier.height(24.dp))
@@ -676,3 +680,4 @@ private fun CalibrationSection(services: AppServices, micKey: String?, inputs: L
 
 private const val TOOL_LIVE = 0
 private const val TOOL_HEALTH = 5
+private const val TOOL_ABOUT = 4

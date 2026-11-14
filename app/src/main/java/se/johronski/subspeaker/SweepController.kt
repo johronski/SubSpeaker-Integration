@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import se.johronski.subspeaker.audio.BassMetrics
 import se.johronski.subspeaker.audio.Decision
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SweepAnalyzer
@@ -94,10 +95,10 @@ class SweepController(private val services: AppServices, private val store: Stor
                     val lo = DoubleArray(n) { i -> list.minOf { it.db[i] } }
                     val hi = DoubleArray(n) { i -> list.maxOf { it.db[i] } }
                     val perPos = list.groupBy { it.position }.mapValues { (_, c) ->
-                        SweepAnalyzer.deviation(SweepAnalyzer.powerAverage(c.map { it.db }))
+                        BassMetrics.unevenness(SweepAnalyzer.powerAverage(c.map { it.db }))
                     }
                     Group(
-                        list.first().group.trim(), list.size, avg, mean, SweepAnalyzer.deviation(avg),
+                        list.first().group.trim(), list.size, avg, mean, BassMetrics.unevenness(avg),
                         list.minOf { it.snrDb }, lo, hi, perPos,
                     )
                 }

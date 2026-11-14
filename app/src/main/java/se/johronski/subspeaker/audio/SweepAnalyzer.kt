@@ -153,6 +153,9 @@ object SweepAnalyzer {
     }
 
     /**
+     * Gamla ojämnhetsmåttet (till och med 0.8.11). Används inte längre i appen, se [BassMetrics].
+     * Ligger kvar för jämförelser i testerna.
+     *
      * Avvikelse (dB, viktat RMS) från en rak trendlinje över fLow–fHigh på logaritmisk frekvensaxel.
      * Området runt delningen (60–130 Hz) väger dubbelt. En jämn lutning straffas alltså inte,
      * men toppar, dalar och trappsteg mellan sub och högtalare gör det.

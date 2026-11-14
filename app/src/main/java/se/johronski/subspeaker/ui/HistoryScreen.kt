@@ -1,9 +1,13 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package se.johronski.subspeaker.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.johronski.subspeaker.AppServices
 import se.johronski.subspeaker.SavedResult
+import se.johronski.subspeaker.audio.BassMetrics
 
 private fun colorFor(name: String, hasAfter: Boolean): Pair<Color, Boolean> = when {
     name == "Efter" || name == "Nu" || name == "Kurva" -> Accent to false
@@ -84,6 +90,29 @@ fun HistoryScreen(services: AppServices) {
                             ExplorerCurve(name, explain(name), db, c, dashed = dashed, thick = !dashed && c == Accent)
                         },
                     )
+                }
+            }
+            val measured = item.curves.mapNotNull { (name, db) ->
+                BassMetrics.analyze(db, guide.targetBalance)?.let { name to it }
+            }
+            if (measured.isNotEmpty()) {
+                Panel(title = "Mått") {
+                    var shown by remember(item.id) { mutableStateOf(measured.first().first) }
+                    if (measured.size > 1) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            measured.forEach { (name, _) ->
+                                FilterChip(selected = shown == name, onClick = { shown = name }, label = { Text(name) })
+                            }
+                        }
+                    }
+                    measured.firstOrNull { it.first == shown }?.let { MetricsTable(it.second) }
+                    if (item.source == "Live-kurva") {
+                        val places = item.curves.filterKeys { it != "Nu" }.values.toList()
+                        BassMetrics.msv(places)?.let {
+                            Text("Skillnad mellan platserna (MSV): ${msvText(it)}", fontSize = 15.sp)
+                        }
+                    }
+                    Muted("Mot målkurvan med nuvarande målbalans. Förklaring under Om SubSpeaker i menyn.")
                 }
             }
             OutlinedButton(onClick = {

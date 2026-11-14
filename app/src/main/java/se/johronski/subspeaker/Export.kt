@@ -82,6 +82,8 @@ object Export {
                         .put("after", h.after?.let { Store.doubles(it) } ?: JSONObject.NULL)
                         .put("changes", Store.strings(h.changes))
                         .put("findings", JSONArray().also { a -> h.report?.findings?.forEach { f -> a.put(f.title) } })
+                        .put("metricsTogether", h.together?.let { metricsJson(it, guide.targetBalance) } ?: JSONObject.NULL)
+                        .put("metricsAfter", h.after?.let { metricsJson(it, guide.targetBalance) } ?: JSONObject.NULL)
                 },
             )
             .put("curves", JSONArray().also { a -> sweep.curves.forEach { a.put(SweepController.toJson(it)) } })
@@ -91,14 +93,34 @@ object Export {
                     guide.history.forEach { r ->
                         val cj = JSONObject()
                         r.curves.forEach { (k, v) -> cj.put(k, Store.doubles(v)) }
+                        val mj = JSONObject()
+                        r.curves.forEach { (k, v) -> metricsJson(v, guide.targetBalance)?.let { mj.put(k, it) } }
+                        if (r.source == "Live-kurva") {
+                            se.johronski.subspeaker.audio.BassMetrics.msv(r.curves.filterKeys { it != "Nu" }.values.toList())
+                                ?.let { mj.put("msvDb2", it) }
+                        }
                         a.put(
                             JSONObject().put("id", r.id).put("date", r.date).put("source", r.source)
-                                .put("lines", Store.strings(r.lines)).put("curves", cj),
+                                .put("lines", Store.strings(r.lines)).put("curves", cj).put("metrics", mj),
                         )
                     }
                 },
             )
     }
+
+    /** Måtten mot målkurvan för en kurva, se [se.johronski.subspeaker.audio.BassMetrics]. */
+    private fun metricsJson(db: DoubleArray, targetBalance: Double): JSONObject? =
+        se.johronski.subspeaker.audio.BassMetrics.analyze(db, targetBalance)?.let { m ->
+            fun ex(e: se.johronski.subspeaker.audio.BassMetrics.Extreme) =
+                JSONObject().put("hz", e.freq).put("db", e.db).put("widthOct", e.widthOct)
+            JSONObject()
+                .put("shelfDb", m.shelfDb)
+                .put("sdDb", m.sdDb)
+                .put("slopeDbPerOct", m.slopeDbPerOct)
+                .put("nbdDb", m.nbdDb)
+                .put("peak", ex(m.peak))
+                .put("dip", ex(m.dip))
+        }
 
     /** Skriver filen och öppnar Androids delningsmeny. */
     fun share(context: Context, services: AppServices) {

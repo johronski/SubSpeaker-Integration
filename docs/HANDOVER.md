@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.8.11**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.9.0**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -32,11 +32,19 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - Hälsokollen 2026-10-20 (inbyggd mikrofon): allt tillsammans 1–2,5 dB *över* effektsumman 76–127 Hz → ingen utsläckning. Dippen vid 120 Hz finns i Genelec ensam.
 - Platsjämförelse 17:19 gjordes av misstag med **inbyggd mikrofon** (preliminärt): soffan vänster jämnast (2,7 dB) och nästan utan 120 Hz-dipp; Nu 3,4, mitten 2 m 3,2, lampetthöjd 3,1. Hypotes: breddmod runt 114 Hz (rummet 3 m), hål ~75 cm från långväggarna.
 - Inbyggd mikrofon dämpar basen kraftigt och ger lägre (bättre) ojämnhet än UMIK-1 (3,2 mot 4,0 på samma plats). Jämför aldrig mellan mikrofonerna.
-- Ojämnhetstalet är okänsligt för smala djupa hål (10 dB-hål vid 85 Hz ändrade talet 2,75 → 2,69). Balansmålet +3 dB är troligen för lågt; beskedet "djupbasen 3 dB för stark" ska inte följas utan lyssning.
+- Det gamla ojämnhetstalet var okänsligt för smala djupa hål (10 dB-hål vid 85 Hz ändrade talet 2,75 → 2,69) och räknade en jämn lutning som jämn. Ersatt i 0.9.0, se *Mått*.
+- Balansmålet +3 dB är rimligt: en Harman-hylla på 5–7 dB motsvarar ungefär +2,5 … +3,5 dB i appens balansmått (bandet 100–250 Hz ligger delvis på hyllan). Tidigare påstående om att +3 är för lågt var fel.
 
-## Appen i dag (0.8.9)
+**2026-11-14 18:54, platser med UMIK-1 (Live-kurva, kalibrerad):** lampetten, pianot vänster, pianot, pianot höger, soffan.
+- Nya måtten (målbalans +3, hylla G = 5,5 dB): ojämnhet lampetten 3,1, pianot vänster 3,4, pianot 3,1, pianot höger 2,9, **soffan 5,5**. Soffan har lutning −5,5 dB/okt mot målet (≈ 10 dB för mycket djupbas) och en bred topp +9 dB vid 30 Hz. Det gamla måttet gav soffan 2,80, lika bra som de andra – samma fel gjorde att "soffan vänster" såg jämnast ut 17:19.
+- De fyra andra platserna skiljer sig lite (0,4 dB i ojämnhet) – går inte att rangordna.
+- **Alla fem har ett brett hål 85–130 Hz**, djupast runt 120 Hz. Flytt längs rummet hjälper alltså inte. Kandidater: summering sub/Genelec vid platsen, eller breddmod ~114 Hz (rummet 3 m). Toppar kan sänkas med EQ, hålet inte.
+- MSV fem platser 5,9 dB², utan soffan 4,3 dB².
+- Hälsokollens två kurvor (före/efter) har olika hål (135 mot 85 Hz) utan ändrad inställning – rörlig mikrofon ger viss slumpvariation.
 
-**Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet 30–200 Hz (`SweepAnalyzer.deviation`) som tal, och den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
+## Appen i dag (0.9.0)
+
+**Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet mot målkurvan (`BassMetrics`) som tal, en rad med lutning, NBD och största hål, och MSV mellan platserna. Den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
 
 **Hälsokoll – i menyn** (`HealthController`, `ui/HealthScreens.kt`):
 1. *Kolla nu*: tre delar i valfri ordning med rörlig mikrofon och periodiskt rosa brus: Allt tillsammans, Genelec ensam (MUTE), Sub ensam (Genelecerna av, valfri).
@@ -44,14 +52,15 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 3. *Stämapparat*: fas (appen säger vilket läge du ska trycka och mäter alla fyra), lågpass och nivå, med levande kurva.
 4. *Efterkontroll*. Allt sparas automatiskt i **Sparade resultat**, där resultat kan visas och jämföras.
 
-**Menyn:** uppspelning, mikrofon och volym; röstguide (av som standard; mätningen bortser från tiden då rösten talar); Hälsokoll (guidad mätning); Sparade resultat; Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
+**Menyn:** uppspelning, mikrofon och volym; Om SubSpeaker och måtten (0.9.0); röstguide (av som standard; mätningen bortser från tiden då rösten talar); Hälsokoll (guidad mätning); Sparade resultat; Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
 
 **Mätteknik:**
 - `audio/Multitone.kt`: multiton 18–680 Hz (till 0.8.8: 350 Hz), period 65 536 sampel vid 48 kHz (1,37 s), amplitud ∝ 1/√f. Analys per period efter nedsampling till 3 kHz (avskärning 1000 Hz, till 0.8.8: 700 Hz). Högpass vid 12 Hz mot hanteringsmuller. Signal och glapp bedöms inom tonbandet. 1/6-oktavsutjämning på 1/24-oktavspunkter 20–600 Hz (119 punkter; de 94 första är den gamla kurvan 20–300 Hz, så `Store.curve` fyller ut gamla sparade kurvor med NaN, som inte ritas).
 - `audio/LiveSpectrum.kt`: exponentiellt medelvärde (Snabb 1,5 s, Normal 4 s, Lugn 12 s). Råläge med Hann-fönster för musik.
 - `audio/SweepAnalyzer.kt`: äldre svepmätning (10–600 Hz, 8 s) med dekonvolution och impulssvar. Används i Fri mätning.
-- Mått: `SweepAnalyzer.deviation` (ojämnhet 30–200 Hz, dubbel vikt 60–130 Hz) och `balance` (25–63 Hz mot 100–250 Hz, mål +3 dB).
-- **Diagnosgränser (obekräftade):** utsläckning om allt tillsammans är mer än 3 dB under Genelec ensam (45–160 Hz) eller förlusten mot effektsumman är över 2,5 dB. Nivå om avvikelsen från målet är över 2 dB. Lågpass om mötesfrekvensen är över 115 eller under 60 Hz. Rumshål om dippen i Genelec ensam är mer än 6 dB. Mätare: 5 dB ojämnhet = 0, 1,5 dB = 1. Ord: under 2,5 dB "Jämnt", under 3,8 dB "OK".
+- **Mått (0.9.0, `audio/BassMetrics.kt`, förklaras i appen under Om SubSpeaker):** 25–200 Hz mot målkurvan T(f) = G/(1+(f/105)²), där G väljs så att T:s `balance` = målbalansen (+3 dB → G ≈ 5,5 dB). Felkurva e = L − T − medel. **Ojämnhet** = SD(e). **Lutning** = linje genom e mot log₂ f (dB/okt, minus = mer djupbas än målet). **NBD** = medel över halvoktavband av medel |L − bandmedel| (Olive 2004). **Största topp/hål** i e med bredd (punkter över halva värdet /24). **MSV** = medel 30–150 Hz av variansen mellan platser efter nivåjustering (medel 30–200 Hz) (Welti & Devantier 2006). SD + lutning följer Olives hörlursmodell (2018); vikterna används inte. Ojämnheten ersätter `SweepAnalyzer.deviation` överallt: diagnos, mätare, fasval, lågpass, Jämför platser, Fri mätning (där med målbalans +3). `balance` (25–63 mot 100–250 Hz) används som förut för nivåbeskedet. Testerna (`BassMetricsTest`) jämför mot en oberoende Python-version på riktiga kurvor.
+- Målbalansen (+2 … +6 dB) väljs på sidan Om SubSpeaker och sparas i guiden. Exporten har `metrics` per kurva i `savedResults` (och `msvDb2` för Live-kurva) samt `healthCheck.metricsTogether/metricsAfter`.
+- **Diagnosgränser (obekräftade):** utsläckning om allt tillsammans är mer än 3 dB under Genelec ensam (45–160 Hz) eller förlusten mot effektsumman är över 2,5 dB. Nivå om avvikelsen från målet är över 2 dB. Lågpass om mötesfrekvensen är över 115 eller under 60 Hz. Rumshål om dippen i Genelec ensam är mer än 6 dB. Mätare: 5 dB ojämnhet = 0, 1,5 dB = 1. Ord: under 2,5 dB "Jämnt", under 3,8 dB "OK" (samma gränser med nya måttet; de bra platserna 2026-11-14 ligger på 2,9–3,4, soffan 5,5).
 
 **Uppspelning:** egen Chromecast-klient (CASTV2 över TLS port 8009, Default Media Receiver, porterad från RadioCast). Telefonen kör en ljudserver (NanoHTTPD, port 8089). Klienten ansluter automatiskt igen, gör ett nytt försök om uppspelningen inte startar och slår av mute. Uppspelning i telefonen sker via AudioTrack eller ExoPlayer.
 
@@ -74,7 +83,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 ## Öppna punkter, i föreslagen ordning
 
-1. **Nästa gång:** mät om de fyra platserna (Nu, mitten 2 m, soffan vänster, lampetthöjd) med UMIK-1 och gärna i sidled mot rummets mitt. Kontrollera "Mikrofon: …" och "Kalibrerad" i Sparade resultat, skicka JSON-exporten. Bekräfta om soffan vänster är jämnast.
+1. ~~Mät om platserna med UMIK-1~~ – gjort 2026-11-14 18:54, se ovan. **Öppen fråga till användaren:** sitter han i soffan, eller kan soffan flyttas till pianoväggen? Svaret avgör om EQ-testet (punkt 8) ska börja med toppen vid 30 Hz i soffan.
+1a. **Kontrollera 0.9.0 på telefonen:** Jämför platser och Sparade resultat ska visa samma tal som ovan för 18:54 (ojämnhet soffan ≈ 5,5, pianot ≈ 3,1). Hålet 85–130 Hz: mät en plats närmare rummets mitt i sidled (breddmod?) och prova fas 0/90/180/270 i sittplatsen.
 1b. **Prova på riktigt (tidigare punkt):** jämför några lyssningspositioner i Live-kurva med UMIK-1 och spara i Sparade resultat; gör också en hälsokoll med alla tre delarna. Skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
 2. **Gör om nivåsteget** och kontrollera trycken på subbens display.
 3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem (svepet slutar vid 600 Hz, så kurvans översta punkt är osäker där). Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).

@@ -313,6 +313,7 @@ private fun DiagnosisScreen(services: AppServices, s: HealthController.State) {
     val numbered = rep.findings.mapIndexed { i, f -> i + 1 to f }
     var why by remember { mutableStateOf<String?>(null) }
     var showCurves by remember { mutableStateOf(false) }
+    var showMetrics by remember { mutableStateOf(false) }
     Page {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Kicker("Hälsokoll klar")
@@ -358,6 +359,13 @@ private fun DiagnosisScreen(services: AppServices, s: HealthController.State) {
                     crossover = rep.crossoverHz,
                     numbered = numbered.mapNotNull { (n, f) -> f.freq?.let { it to n } },
                 )
+            }
+            rep.metrics?.let { m ->
+                TextButton(onClick = { showMetrics = !showMetrics }) { Text(if (showMetrics) "Dölj mått ▴" else "Visa mått ▾") }
+                if (showMetrics) {
+                    MetricsTable(m)
+                    Muted("Mått mot målkurvan för allt tillsammans. Förklaring under Om SubSpeaker i menyn.")
+                }
             }
         }
         numbered.forEach { (n, f) ->
@@ -629,7 +637,7 @@ private fun DoneScreen(services: AppServices, s: HealthController.State) {
             )
             Muted(
                 when {
-                    improved >= 0.5 -> String.format(Locale.ROOT, "Övergången mellan sub och Genelec är %.1f dB jämnare än före.", improved)
+                    improved >= 0.5 -> String.format(Locale.forLanguageTag("sv"), "Basen ligger %.1f dB närmare målkurvan än före.", improved)
                     improved <= -0.5 -> "Det blev lite ojämnare. Prova att gå tillbaka till den tidigare inställningen."
                     else -> "Skillnaden mot före är liten."
                 },

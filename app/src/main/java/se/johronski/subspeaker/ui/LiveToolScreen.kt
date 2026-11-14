@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import se.johronski.subspeaker.AppServices
 import se.johronski.subspeaker.HealthController
-import se.johronski.subspeaker.audio.SweepAnalyzer
+import se.johronski.subspeaker.audio.BassMetrics
 import java.util.Locale
 
 /**
@@ -90,9 +90,8 @@ fun LiveToolScreen(services: AppServices, setup: Setup) {
     }
 }
 
-/** Ojämnhet (dB) i 30–200 Hz, samma mått som hälsokollen använder. null om kurvan saknar värden där. */
-private fun uneven(db: DoubleArray): Double? =
-    SweepAnalyzer.deviation(db).takeIf { it.isFinite() }
+/** Mått mot målkurvan, samma som hälsokollen använder. null om kurvan saknar värden i 25–200 Hz. */
+private fun metrics(db: DoubleArray, target: Double): BassMetrics.Result? = BassMetrics.analyze(db, target)
 
 private fun fmtDb(v: Double) = String.format(Locale.forLanguageTag("sv"), "%.1f dB", v)
 
@@ -100,31 +99,43 @@ private fun fmtDb(v: Double) = String.format(Locale.forLanguageTag("sv"), "%.1f 
 @Composable
 private fun ComparePanel(services: AppServices, live: HealthController.Live) {
     var name by remember { mutableStateOf("") }
+    val guide by services.guide.state.collectAsState()
+    val target = guide.targetBalance
     val own = live.snapshots.filter { it.label.startsWith("Jämförelse") }
     val full = own.size >= HealthController.MAX_COMPARE
-    val now = live.curve?.let { uneven(it) }
+    val now = live.curve?.let { metrics(it, target) }
 
     // Rader: Nu + sparade, med ojämnhet. Den jämnaste av de sparade markeras.
-    val rows = own.map { Triple(it, uneven(it.db), snapshotColor(it.label)) }
-    val best = rows.filter { it.second != null }.minByOrNull { it.second!! }?.first?.label
+    val rows = own.map { Triple(it, metrics(it.db, target), snapshotColor(it.label)) }
+    val best = rows.filter { it.second != null }.minByOrNull { it.second!!.sdDb }?.first?.label
+    val msv = BassMetrics.msv(own.map { it.db })
 
     Panel(title = "Jämför platser") {
-        Muted("Ojämnhet 30–200 Hz, samma mått som hälsokollen: lägre är jämnare. Under 2,5 dB är jämnt, under 3,8 dB OK. Skillnader på några tiondelar kan vara slump.")
+        Muted(
+            "Ojämnhet = spridning mot målkurvan 25–200 Hz, samma mått som hälsokollen. Lägre är jämnare: under 2,5 dB jämnt, " +
+                "under 3,8 dB OK. Skillnader på några tiondelar kan vara slump. Under namnet: lutning mot målet, smala avvikelser (NBD) " +
+                "och största hål. Förklaring under Om SubSpeaker i menyn.",
+        )
         CompareRow(
             color = Accent,
             name = "Nu",
-            value = now,
+            value = now?.sdDb,
             note = if (!live.stable) "kurvan ändrar sig" else null,
+            detail = now?.let { compactMetrics(it) },
             bold = true,
         )
-        rows.forEach { (snap, v, color) ->
+        rows.forEach { (snap, m, color) ->
             CompareRow(
                 color = color,
                 name = snap.name,
-                value = v,
+                value = m?.sdDb,
                 note = if (snap.label == best && rows.size > 1) "jämnast" else null,
+                detail = m?.let { compactMetrics(it) },
                 onRemove = { services.health.removeSnapshot(snap.label) },
             )
+        }
+        msv?.let {
+            Muted("Skillnad mellan de sparade platserna (MSV): ${msvText(it)}. Lågt värde betyder att en gemensam EQ kan hjälpa alla platser.")
         }
         if (!full) {
             OutlinedTextField(
@@ -160,6 +171,7 @@ private fun CompareRow(
     name: String,
     value: Double?,
     note: String?,
+    detail: String? = null,
     bold: Boolean = false,
     onRemove: (() -> Unit)? = null,
 ) {
@@ -169,6 +181,7 @@ private fun CompareRow(
         Column(Modifier.weight(1f)) {
             Text(name, fontSize = 16.sp, fontWeight = if (bold) FontWeight.Medium else FontWeight.Normal)
             note?.let { Text(it, fontSize = 13.sp, color = if (it == "jämnast") Good else InkMuted) }
+            detail?.let { Text(it, fontSize = 12.sp, lineHeight = 16.sp, color = InkMuted) }
         }
         Text(value?.let { fmtDb(it) } ?: "–", fontSize = 18.sp, fontWeight = FontWeight.Medium)
         if (onRemove != null) {
