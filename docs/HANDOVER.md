@@ -81,6 +81,7 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8, tecken och storlek kontrollerade mot riktig fil 2026-11-14.
 5. **Mikrofonhjälp:** visa en förklaring om TS/TRS-kontakter när bara den inbyggda mikrofonen hittas.
 6. Ingen ny funktion förrän punkt 1 är gjord.
+7. **Förslag: REW på datorn (efter punkt 1).** Användaren funderar på Linux Mint + REW. REW finns även för Windows/macOS, så OS-byte behövs inte för REW. Vid Mint: prova från USB (live) först, kontrollera ljud, wifi och UMIK-1 (fungerar utan drivrutin), säkerhetskopiera före installation. Uppspelning: REW behöver spela själv med exakt tidtagning – kabel från datorns hörlursutgång till Velodynens linjeingång (3,5 mm → RCA), inte Chromecast (1,5 s fördröjning). Vad REW ger: impulssvar och fas (exakt tidsinställning sub/Genelec i stället för 0/90/180/270), vattenfall (bekräftar rumsmoder vid 45, 75 och 120 Hz) och en oberoende kontroll av appen (mät samma plats med båda). **Princip:** när REW finns byggs ingen mer analys in i appen; appens roll är live-kurvan för att hitta position. Hål som det vid 120 Hz går inte att EQ:a bort – bara plats för lyssnare eller högtalare hjälper.
 
 ## Kända begränsningar
 
