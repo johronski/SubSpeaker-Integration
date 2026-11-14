@@ -350,8 +350,7 @@ class SweepController(private val services: AppServices, private val store: Stor
                 .put("latencies", JSONArray().also { a -> c.latencies.forEach { a.put(it ?: JSONObject.NULL) } })
 
         fun fromJson(o: JSONObject): Curve? {
-            val n = SweepAnalyzer.FREQUENCIES.size
-            val db = Store.doubles(o.optJSONArray("db"))?.takeIf { it.size == n } ?: return null
+            val db = Store.curve(o.optJSONArray("db")) ?: return null
             val group = o.getString("group")
             val irsJ = o.optJSONArray("irs")
             val latJ = o.optJSONArray("latencies")

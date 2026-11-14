@@ -26,7 +26,8 @@ object Multitone {
     const val FRAME = PERIOD / SweepAnalyzer.DECIMATION
 
     const val F_LO = 18.0
-    const val F_HI = 350.0
+    /** Täcker kurvans översta punkt (≈ 603 Hz) plus halva utjämningsbandet. */
+    const val F_HI = 680.0
     const val PEAK_DBFS = -4.0
 
     val binHz: Double = SignalGenerator.SAMPLE_RATE.toDouble() / PERIOD

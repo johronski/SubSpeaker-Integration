@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.8.8**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14, version **0.8.9**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -26,18 +26,20 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 **Ingen mätning med hälsokollen (0.8.x) har skickats än.** Gränser och diagnosregler är därför obekräftade.
 
-## Appen i dag (0.8.7)
+## Appen i dag (0.8.9)
 
-**Huvudflöde – hälsokoll** (`HealthController`, `ui/HealthScreens.kt`):
+**Startsida – Live-kurva** (`ui/LiveToolScreen.kt`, sedan 0.8.9): det användaren faktiskt använder, framför allt för att hitta lyssningsposition. Kurvan visas 20–600 Hz. Under den finns *Jämför platser*: upp till fem namngivna jämförelser (t.ex. "Soffan") med ojämnhet 30–200 Hz (`SweepAnalyzer.deviation`) som tal, och den jämnaste markeras. Jämförelser från före 0.8.9 visas till 300 Hz.
+
+**Hälsokoll – i menyn** (`HealthController`, `ui/HealthScreens.kt`): (`HealthController`, `ui/HealthScreens.kt`):
 1. *Kolla nu*: tre delar i valfri ordning med rörlig mikrofon och periodiskt rosa brus: Allt tillsammans, Genelec ensam (MUTE), Sub ensam (Genelecerna av, valfri).
 2. *Diagnos* (`audio/Diagnosis.kt`): utsläckning (fas), nivå, lågpass och rumshål, med "Visa kurvor".
 3. *Stämapparat*: fas (appen säger vilket läge du ska trycka och mäter alla fyra), lågpass och nivå, med levande kurva.
 4. *Efterkontroll*. Allt sparas automatiskt i **Sparade resultat**, där resultat kan visas och jämföras.
 
-**Menyn:** uppspelning, mikrofon och volym; röstguide (av som standard; mätningen bortser från tiden då rösten talar); Live-kurva (med eller utan mätljud, frys, jämförelser); Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
+**Menyn:** uppspelning, mikrofon och volym; röstguide; Hälsokoll (guidad mätning); Sparade resultat (av som standard; mätningen bortser från tiden då rösten talar); Lyssna på toner; Fri mätning (svep); Felsökning och export (rapport som text och JSON-export med alla kurvor och impulssvar).
 
 **Mätteknik:**
-- `audio/Multitone.kt`: multiton 18–350 Hz, period 65 536 sampel vid 48 kHz (1,37 s), amplitud ∝ 1/√f. Analys per period efter nedsampling till 3 kHz. Högpass vid 12 Hz mot hanteringsmuller. Signal och glapp bedöms inom tonbandet. 1/6-oktavsutjämning på 1/24-oktavspunkter 20–300 Hz.
+- `audio/Multitone.kt`: multiton 18–680 Hz (till 0.8.8: 350 Hz), period 65 536 sampel vid 48 kHz (1,37 s), amplitud ∝ 1/√f. Analys per period efter nedsampling till 3 kHz (avskärning 1000 Hz, till 0.8.8: 700 Hz). Högpass vid 12 Hz mot hanteringsmuller. Signal och glapp bedöms inom tonbandet. 1/6-oktavsutjämning på 1/24-oktavspunkter 20–600 Hz (119 punkter; de 94 första är den gamla kurvan 20–300 Hz, så `Store.curve` fyller ut gamla sparade kurvor med NaN, som inte ritas).
 - `audio/LiveSpectrum.kt`: exponentiellt medelvärde (Snabb 1,5 s, Normal 4 s, Lugn 12 s). Råläge med Hann-fönster för musik.
 - `audio/SweepAnalyzer.kt`: äldre svepmätning (10–600 Hz, 8 s) med dekonvolution och impulssvar. Används i Fri mätning.
 - Mått: `SweepAnalyzer.deviation` (ojämnhet 30–200 Hz, dubbel vikt 60–130 Hz) och `balance` (25–63 Hz mot 100–250 Hz, mål +3 dB).
@@ -58,9 +60,9 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 ## Öppna punkter, i föreslagen ordning
 
-1. **Prova på riktigt:** gör en hälsokoll med alla tre delarna och skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
+1. **Prova på riktigt:** jämför några lyssningspositioner i Live-kurva med UMIK-1 och spara i Sparade resultat; gör också en hälsokoll med alla tre delarna. Skicka JSON-exporten. Kontrollera sedan diagnosen mot kurvorna och kalibrera gränserna.
 2. **Gör om nivåsteget** och kontrollera trycken på subbens display.
-3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem. Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).
+3. **Städa:** flytta Fri mätning, Lyssna på toner och svepmätningen till en undermeny eller ta bort dem (svepet slutar vid 600 Hz, så kurvans översta punkt är osäker där). Ta bort död kod (`Guide`-objektet och guidedelen av `SweepController`).
 4. ~~Stöd för kalibreringsfil~~ – klart i 0.8.8. Kontrollera med exporten att korrigeringen har rätt tecken (UMIK-1-filens värden ska dras bort).
 5. **Mikrofonhjälp:** visa en förklaring om TS/TRS-kontakter när bara den inbyggda mikrofonen hittas.
 6. Ingen ny funktion förrän punkt 1 är gjord.

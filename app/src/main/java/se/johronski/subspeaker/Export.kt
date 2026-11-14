@@ -64,7 +64,7 @@ object Export {
                     .put("sampleRate", SweepAnalyzer.FS)
                     .put("recordingRate", se.johronski.subspeaker.audio.SignalGenerator.SAMPLE_RATE)
                     .put("decimation", SweepAnalyzer.DECIMATION)
-                    .put("decimationFilter", "4 x RBJ biquad lowpass 700 Hz (Q 0.5412, 1.3066, 0.5412, 1.3066)")
+                    .put("decimationFilter", "4 x RBJ biquad lowpass 1000 Hz (Q 0.5412, 1.3066, 0.5412, 1.3066)")
                     .put("irWindow", "peak −50 ms … +500 ms, Hann taper 10 ms in, 100 ms out")
                     .put("irEncoding", "float32 little endian, base64")
                     .put("dbSmoothing", "1/6 octave, power average")

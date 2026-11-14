@@ -34,8 +34,23 @@ class Store(private val context: Context) {
     }
 
     companion object {
-        fun doubles(a: DoubleArray): JSONArray = JSONArray().also { j -> a.forEach { j.put(it) } }
-        fun doubles(j: JSONArray?): DoubleArray? = j?.let { DoubleArray(it.length()) { i -> it.getDouble(i) } }
+        /** Värden som saknas (NaN) sparas som null, eftersom JSON inte tillåter NaN. */
+        fun doubles(a: DoubleArray): JSONArray = JSONArray().also { j -> a.forEach { if (it.isFinite()) j.put(it) else j.put(JSONObject.NULL) } }
+        fun doubles(j: JSONArray?): DoubleArray? = j?.let { DoubleArray(it.length()) { i -> it.optDouble(i, Double.NaN) } }
+
+        /**
+         * En sparad kurva på [SweepAnalyzer.FREQUENCIES]. Kurvor från före 0.8.9 slutar vid 300 Hz; de fylls ut
+         * med NaN (visas inte) så att alla kurvor har samma längd. Kurvor med annan längd ger null.
+         */
+        fun curve(j: JSONArray?): DoubleArray? {
+            val a = doubles(j) ?: return null
+            val n = se.johronski.subspeaker.audio.SweepAnalyzer.FREQUENCIES.size
+            return when {
+                a.size == n -> a
+                a.size in 1 until n -> DoubleArray(n) { if (it < a.size) a[it] else Double.NaN }
+                else -> null
+            }
+        }
         fun strings(l: Collection<String>): JSONArray = JSONArray().also { j -> l.forEach { j.put(it) } }
         fun strings(j: JSONArray?): List<String> = j?.let { List(it.length()) { i -> it.getString(i) } } ?: emptyList()
         fun ints(l: Collection<Int>): JSONArray = JSONArray().also { j -> l.forEach { j.put(it) } }

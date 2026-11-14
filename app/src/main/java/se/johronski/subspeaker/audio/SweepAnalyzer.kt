@@ -23,9 +23,16 @@ object SweepAnalyzer {
     /** Mätsvepet: 10–600 Hz på 8 s. */
     val SWEEP = SignalSpec.Sweep(10.0, 600.0, 8.0, -12.0)
 
-    /** Kurvans frekvenser: 20–300 Hz i 1/24-oktavssteg. */
+    /** Högsta frekvens som visas. */
+    const val F_TOP = 600.0
+
+    /**
+     * Kurvans frekvenser: 20–600 Hz i 1/24-oktavssteg (sista punkten ≈ 603 Hz).
+     * Till och med 0.8.8 gick kurvan till 300 Hz (94 punkter). Eftersom stegen är desamma är en gammal
+     * kurva början av en ny; se `Store.curve`, som fyller ut gamla kurvor.
+     */
     val FREQUENCIES: DoubleArray = run {
-        val steps = (24 * ln(300.0 / 20.0) / ln(2.0)).toInt()
+        val steps = kotlin.math.ceil(24 * ln(F_TOP / 20.0) / ln(2.0)).toInt()
         DoubleArray(steps + 1) { 20.0 * 2.0.pow(it / 24.0) }
     }
 

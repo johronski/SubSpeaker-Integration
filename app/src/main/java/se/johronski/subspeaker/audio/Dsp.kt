@@ -75,7 +75,7 @@ class LowPass(freq: Double, sampleRate: Int, q: Double) {
  * Minskar samplingsfrekvensen med en heltalsfaktor efter ett åttonde ordningens
  * lågpassfilter. 48 kHz / 16 = 3 kHz räcker för analys upp till några hundra Hz.
  */
-class Decimator(private val factor: Int = 16, sampleRate: Int = SignalGenerator.SAMPLE_RATE, cutoff: Double = 700.0) {
+class Decimator(private val factor: Int = 16, sampleRate: Int = SignalGenerator.SAMPLE_RATE, cutoff: Double = 1000.0) {
     private val filters = listOf(0.5412, 1.3066, 0.5412, 1.3066).map { LowPass(cutoff, sampleRate, it) }
     private var counter = 0
 

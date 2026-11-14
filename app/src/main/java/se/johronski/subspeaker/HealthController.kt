@@ -58,8 +58,13 @@ class HealthController(private val services: AppServices, private val store: Sto
         val speed: LiveSpectrum.Speed = LiveSpectrum.Speed.NORMAL,
     )
 
-    /** En sparad kurva att jämföra med. */
-    data class Snapshot(val label: String, val db: DoubleArray)
+    /**
+     * En sparad kurva att jämföra med. [label] är ett fast id ("Jämförelse 1", "Fas 90"),
+     * [title] användarens namn, t.ex. "Soffan".
+     */
+    data class Snapshot(val label: String, val db: DoubleArray, val title: String? = null) {
+        val name: String get() = title?.takeIf { it.isNotBlank() } ?: label
+    }
 
     data class State(
         val screen: Screen = Screen.START,
@@ -176,13 +181,19 @@ class HealthController(private val services: AppServices, private val store: Sto
 
     fun resetScale() = set { s -> s.copy(live = s.live.copy(refDb = s.live.curve?.let { ref(it) })) }
 
-    /** Sparar nuvarande kurva som jämförelse (högst tre i verktyget). */
-    fun addSnapshot() = set { s ->
+    /** Sparar nuvarande kurva som jämförelse, med ett namn som "Soffan" (högst [MAX_COMPARE]). */
+    fun addSnapshot(title: String? = null) = set { s ->
         val c = s.live.curve ?: return@set s
         val own = s.live.snapshots.filter { it.label.startsWith("Jämförelse") }
-        val n = (1..3).firstOrNull { i -> own.none { it.label == "Jämförelse $i" } } ?: return@set s
-        s.copy(live = s.live.copy(snapshots = s.live.snapshots + Snapshot("Jämförelse $n", c)))
+        val n = (1..MAX_COMPARE).firstOrNull { i -> own.none { it.label == "Jämförelse $i" } } ?: return@set s
+        val name = title?.trim()?.takeIf { it.isNotEmpty() }
+        s.copy(live = s.live.copy(snapshots = s.live.snapshots + Snapshot("Jämförelse $n", c.copyOf(), name)))
     }.also { saveSnapshots() }
+
+    fun removeSnapshot(label: String) {
+        set { it.copy(live = it.live.copy(snapshots = it.live.snapshots.filterNot { s -> s.label == label })) }
+        saveSnapshots()
+    }
 
     fun clearSnapshots() {
         set { it.copy(live = it.live.copy(snapshots = emptyList())) }
@@ -192,14 +203,22 @@ class HealthController(private val services: AppServices, private val store: Sto
     /** Jämförelserna i Live-kurva sparas, så att de finns kvar nästa gång. */
     private fun saveSnapshots() {
         val j = JSONObject()
-        _state.value.live.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { j.put(it.label, Store.doubles(it.db)) }
+        val names = JSONObject()
+        _state.value.live.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach {
+            j.put(it.label, Store.doubles(it.db))
+            it.title?.let { t -> names.put(it.label, t) }
+        }
         store.put(SNAP_KEY, j.toString())
+        store.put(SNAP_NAMES_KEY, names.toString())
     }
 
     private fun loadSnapshots(): List<Snapshot> = try {
         store.get(SNAP_KEY)?.let { raw ->
             val j = JSONObject(raw)
-            j.keys().asSequence().mapNotNull { k -> Store.doubles(j.optJSONArray(k))?.let { Snapshot(k, it) } }.sortedBy { it.label }.toList()
+            val names = store.get(SNAP_NAMES_KEY)?.let { JSONObject(it) } ?: JSONObject()
+            j.keys().asSequence()
+                .mapNotNull { k -> Store.curve(j.optJSONArray(k))?.let { Snapshot(k, it, names.optString(k).ifBlank { null }) } }
+                .sortedBy { it.label.filter(Char::isDigit).toIntOrNull() ?: 0 }.toList()
         } ?: emptyList()
     } catch (e: Exception) {
         emptyList()
@@ -210,7 +229,7 @@ class HealthController(private val services: AppServices, private val store: Sto
         val l = _state.value.live
         val c = l.curve ?: return
         val curves = linkedMapOf("Nu" to c)
-        l.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { curves[it.label] = it.db }
+        l.snapshots.filter { it.label.startsWith("Jämförelse") }.forEach { curves[it.name] = it.db }
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ROOT).format(Date())
         val lines = listOf((if (_state.value.liveRaw) "Utan mätljud (det mikrofonen hörde)" else "Med mätljud") + ", ${l.speed.label.lowercase(Locale.ROOT)} medelvärde") + calibrationNote()
         services.guide.saveResult(SavedResult(date, lines, curves, "Live-kurva"))
@@ -780,7 +799,7 @@ class HealthController(private val services: AppServices, private val store: Sto
         val raw = store.get(KEY) ?: return State()
         return try {
             val j = JSONObject(raw)
-            fun arr(k: String) = if (j.isNull(k)) null else Store.doubles(j.optJSONArray(k))?.takeIf { it.size == SweepAnalyzer.FREQUENCIES.size }
+            fun arr(k: String) = if (j.isNull(k)) null else Store.curve(j.optJSONArray(k))
             State(
                 together = arr("together"),
                 genelec = arr("genelec"),
@@ -812,8 +831,12 @@ class HealthController(private val services: AppServices, private val store: Sto
         set { it.copy(screen = if (it.report != null) Screen.DIAGNOSIS else Screen.START) }
     }
 
-    private companion object {
-        const val KEY = "health"
-        const val SNAP_KEY = "liveSnapshots"
+    companion object {
+        private const val KEY = "health"
+        private const val SNAP_KEY = "liveSnapshots"
+        private const val SNAP_NAMES_KEY = "liveSnapshotNames"
+
+        /** Högsta antal egna jämförelser i Live-kurva. */
+        const val MAX_COMPARE = 5
     }
 }

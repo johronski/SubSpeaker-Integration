@@ -33,7 +33,7 @@ fun MeasureScreen(services: AppServices, setup: Setup) {
 
     Panel("Fri svepmätning") {
         Muted(
-            "Mäter hela kurvan 20–300 Hz med ett svep på 8 s. Mätningar med samma namn slås ihop till ett medelvärde – " +
+            "Mäter hela kurvan 20–600 Hz med ett svep på 8 s. Mätningar med samma namn slås ihop till ett medelvärde – " +
                 "mät gärna samma namn på 3–5 platser inom en halvmeter runt lyssningsplatsen.",
         )
         Label("Namn på mätningen")

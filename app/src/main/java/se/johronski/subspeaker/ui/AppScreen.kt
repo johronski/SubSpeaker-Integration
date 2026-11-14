@@ -110,11 +110,12 @@ fun AppScreen(services: AppServices) {
     val playback by services.playback.state.collectAsState()
     val mic by services.mic.state.collectAsState()
 
-    var tool by rememberSaveable { mutableIntStateOf(0) }
+    // 0 = Live-kurva (startsida), 1 = toner, 2 = fri mätning, 3 = felsökning, 5 = hälsokoll.
+    var tool by rememberSaveable { mutableIntStateOf(TOOL_LIVE) }
     var menu by remember { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(enabled = tool != 0) { tool = 0 }
+    androidx.activity.compose.BackHandler(enabled = tool != TOOL_LIVE) { tool = TOOL_LIVE }
     // Ett verktyg och hälsokollen kan inte mäta samtidigt.
-    LaunchedEffect(tool) { if (tool != 0) services.health.pauseAudio() }
+    LaunchedEffect(tool) { if (tool != TOOL_HEALTH) services.health.pauseAudio() }
     // 0 = stängd, 1 = ljud ut, 2 = mikrofon, 3 = båda
     var setupSection by remember { mutableIntStateOf(0) }
     val snackbar = remember { SnackbarHostState() }
@@ -184,7 +185,6 @@ fun AppScreen(services: AppServices) {
         1 -> "Lyssna på toner"
         2 -> "Fri mätning"
         3 -> "Felsökning och export"
-        4 -> "Live-kurva"
         else -> ""
     }
 
@@ -197,8 +197,8 @@ fun AppScreen(services: AppServices) {
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 4.dp),
                 ) {
-                    if (tool != 0) {
-                        androidx.compose.material3.TextButton(onClick = { tool = 0 }) { Text("‹ Hälsokoll", fontSize = 15.sp) }
+                    if (tool != TOOL_LIVE) {
+                        androidx.compose.material3.TextButton(onClick = { tool = TOOL_LIVE }) { Text("‹ Live", fontSize = 15.sp) }
                     }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -241,24 +241,36 @@ fun AppScreen(services: AppServices) {
                                 onClick = { services.setVoice(!settings.voice) },
                             )
                             HorizontalDivider(color = Line)
-                            androidx.compose.material3.DropdownMenuItem(text = { Text("Live-kurva") }, onClick = { menu = false; tool = 4 })
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Hälsokoll (guidad mätning)") },
+                                onClick = {
+                                    menu = false
+                                    if (services.health.state.value.screen == se.johronski.subspeaker.HealthController.Screen.HISTORY) services.health.home()
+                                    tool = TOOL_HEALTH
+                                },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Sparade resultat") },
+                                onClick = { menu = false; services.health.openHistory(); tool = TOOL_HEALTH },
+                            )
+                            HorizontalDivider(color = Line)
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Lyssna på toner") }, onClick = { menu = false; tool = 1 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Fri mätning") }, onClick = { menu = false; tool = 2 })
                             androidx.compose.material3.DropdownMenuItem(text = { Text("Felsökning och export") }, onClick = { menu = false; tool = 3 })
                         }
                     }
                 }
-                if (tool != 0) {
+                if (toolTitle.isNotEmpty()) {
                     Text(toolTitle, fontSize = 22.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
                 }
                 HorizontalDivider(color = Line)
             }
         },
         bottomBar = {
-            if (tool != 0) BottomPlayer(services, playing)
+            if (tool != TOOL_HEALTH) BottomPlayer(services, playing)
         },
     ) { inner ->
-        if (tool == 0) {
+        if (tool == TOOL_HEALTH) {
             androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().padding(inner)) {
                 HealthFlow(services, setup)
             }
@@ -274,8 +286,8 @@ fun AppScreen(services: AppServices) {
                 when (tool) {
                     1 -> ListenScreen(services, setup)
                     2 -> MeasureScreen(services, setup)
-                    4 -> LiveToolScreen(services, setup)
-                    else -> TroubleshootScreen(services, setup)
+                    3 -> TroubleshootScreen(services, setup)
+                    else -> LiveToolScreen(services, setup)
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -641,8 +653,8 @@ private fun CalibrationSection(services: AppServices, micKey: String?, inputs: L
         Muted(
             buildString {
                 c.serial?.let { append("Serienummer $it. ") }
-                append(String.format(java.util.Locale.forLanguageTag("sv"), "Korrigerar %+.1f till %+.1f dB inom 20–300 Hz.", lo, hi))
-                if (!c.coversBand) append(" Filen täcker inte hela 20–300 Hz; ändvärdena används utanför.")
+                append(String.format(java.util.Locale.forLanguageTag("sv"), "Korrigerar %+.1f till %+.1f dB inom 20–600 Hz.", lo, hi))
+                if (!c.coversBand) append(" Filen täcker inte hela 20–600 Hz; ändvärdena används utanför.")
             },
         )
         if (external) {
@@ -661,3 +673,6 @@ private fun CalibrationSection(services: AppServices, micKey: String?, inputs: L
         }
     }
 }
+
+private const val TOOL_LIVE = 0
+private const val TOOL_HEALTH = 5

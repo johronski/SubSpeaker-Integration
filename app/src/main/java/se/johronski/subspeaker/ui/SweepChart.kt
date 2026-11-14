@@ -40,10 +40,11 @@ class ChartCurve(
 )
 
 private const val F_MIN = 20.0
-private const val F_MAX = 300.0
+private val F_MAX = SweepAnalyzer.F_TOP
 
 /**
- * Frekvenskurvor 20–300 Hz på logaritmisk axel.
+ * Frekvenskurvor 20–600 Hz på logaritmisk axel. Punkter som saknas (NaN, t.ex. ovanför 300 Hz i
+ * kurvor sparade före 0.8.9) ritas inte.
  *
  * Kurvorna normaliseras gemensamt så att 0 dB är medelnivån runt 80–125 Hz; inbördes nivåskillnader behålls.
  * [highlight] ritas tjock och övriga tunna. [markers] är markerade dippar, [cursor] tonen som spelas.
@@ -85,11 +86,11 @@ fun SweepChart(
 
         // Gemensam normalisering.
         val refIdx = freqs.indices.filter { freqs[it] in 80.0..125.0 }
-        val offset = refDb ?: curves.flatMap { c -> refIdx.map { c.db[it] } }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
+        val offset = refDb ?: curves.flatMap { c -> refIdx.map { c.db[it] } }.filter { it.isFinite() }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
         fun n(v: Double) = v - offset
         val all = curves.flatMap { c ->
             c.db.map { n(it) } + (c.band?.let { b -> b.first.map { n(it) } + b.second.map { n(it) } } ?: emptyList())
-        }
+        }.filter { it.isFinite() }
         val maxDb = if (all.isEmpty()) 12.0 else ceil((all.max() + 2) / 6) * 6
         val minDb = if (all.isEmpty()) -24.0 else maxOf(floor((all.min() - 2) / 6) * 6, maxDb - 42)
 
@@ -114,7 +115,7 @@ fun SweepChart(
         tickPaint.textAlign = Paint.Align.LEFT
         canvas.drawText("dB", 2.dp.toPx(), top - 2.dp.toPx(), tickPaint)
         tickPaint.textAlign = Paint.Align.CENTER
-        for (f in listOf(20.0, 30.0, 40.0, 50.0, 70.0, 100.0, 150.0, 200.0, 300.0)) {
+        for (f in listOf(20.0, 30.0, 40.0, 50.0, 70.0, 100.0, 150.0, 200.0, 300.0, 500.0)) {
             drawLine(Line.copy(alpha = 0.6f), Offset(x(f), top), Offset(x(f), bottom), 1.dp.toPx())
             canvas.drawText("${f.toInt()}", x(f), size.height - 4.dp.toPx(), tickPaint)
         }
@@ -133,10 +134,11 @@ fun SweepChart(
             val (lo, hi) = c.band ?: return@forEachIndexed
             if (highlight != null && idx != highlight) return@forEachIndexed
             val path = Path()
-            for (i in freqs.indices) {
+            val last = freqs.indices.lastOrNull { hi[it].isFinite() && lo[it].isFinite() } ?: return@forEachIndexed
+            for (i in 0..last) {
                 if (i == 0) path.moveTo(x(freqs[i]), y(n(hi[i]))) else path.lineTo(x(freqs[i]), y(n(hi[i])))
             }
-            for (i in freqs.indices.reversed()) path.lineTo(x(freqs[i]), y(n(lo[i])))
+            for (i in (0..last).reversed()) path.lineTo(x(freqs[i]), y(n(lo[i])))
             path.close()
             drawPath(path, (c.color ?: SeriesColors[idx % SeriesColors.size]).copy(alpha = 0.14f))
         }
@@ -146,10 +148,14 @@ fun SweepChart(
         for (idx in order) {
             val c = curves[idx]
             val path = Path()
+            var pen = false
             for (i in freqs.indices) {
+                val v = c.db[i]
+                if (!v.isFinite()) { pen = false; continue }
                 val px = x(freqs[i])
-                val py = y(n(c.db[i]))
-                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                val py = y(n(v))
+                if (pen) path.lineTo(px, py) else path.moveTo(px, py)
+                pen = true
             }
             val color = c.color ?: SeriesColors[idx % SeriesColors.size]
             val (w, a) = when {
@@ -179,9 +185,14 @@ fun SweepChart(
                 strokeWidth = 4.dp.toPx()
                 color = CardColor.toArgb()
             }
-            val iEnd = freqs.indexOfLast { it <= 260.0 }
+            val iEnd = freqs.indexOfLast { it <= F_MAX * 0.87 }
             val gap = 15.dp.toPx()
-            val placed = curves.indices.map { it to y(n(curves[it].db[iEnd])) - 6.dp.toPx() }.sortedBy { it.second }.toMutableList()
+            val placed = curves.indices.map { k ->
+                val db = curves[k].db
+                // Kurvor som slutar tidigare (sparade före 0.8.9): namnet vid deras sista punkt.
+                val i = (0..iEnd).lastOrNull { db[it].isFinite() } ?: 0
+                k to y(n(db[i])) - 6.dp.toPx()
+            }.sortedBy { it.second }.toMutableList()
             for (k in 1 until placed.size) {
                 if (placed[k].second - placed[k - 1].second < gap) placed[k] = placed[k].first to placed[k - 1].second + gap
             }

@@ -36,19 +36,19 @@ class Calibration(
     /** Korrektionen på [SweepAnalyzer.FREQUENCIES]. */
     val onGrid: DoubleArray by lazy { DoubleArray(SweepAnalyzer.FREQUENCIES.size) { at(SweepAnalyzer.FREQUENCIES[it]) } }
 
-    /** Största och minsta avvikelse inom 20–300 Hz, för att visa hur mycket filen ändrar. */
+    /** Största och minsta avvikelse inom kurvans område, för att visa hur mycket filen ändrar. */
     val rangeInBand: Pair<Double, Double> get() = onGrid.min() to onGrid.max()
 
-    /** true om filen täcker hela appens område (20–300 Hz). */
-    val coversBand: Boolean get() = freqs.first() <= 20.5 && freqs.last() >= 299.0
+    /** true om filen täcker hela kurvans område. */
+    val coversBand: Boolean get() = freqs.first() <= 20.5 && freqs.last() >= SweepAnalyzer.FREQUENCIES.last()
 
-    /** Kort beskrivning, t.ex. "7001234_90deg.txt, serienr 7001234 (−0,4 … +0,2 dB i 20–300 Hz)". */
+    /** Kort beskrivning, t.ex. "7001234_90deg.txt, serienr 7001234 (−0,4 … +0,2 dB i 20–600 Hz)". */
     fun describe(): String {
         val (lo, hi) = rangeInBand
         return buildString {
             append(name)
             serial?.let { append(", serienr $it") }
-            append(String.format(java.util.Locale.ROOT, " (%+.1f … %+.1f dB i 20–300 Hz)", lo, hi))
+            append(String.format(java.util.Locale.ROOT, " (%+.1f … %+.1f dB i 20–%d Hz)", lo, hi, SweepAnalyzer.F_TOP.toInt()))
         }
     }
 

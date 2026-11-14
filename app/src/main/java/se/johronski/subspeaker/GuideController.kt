@@ -311,10 +311,10 @@ class GuideController(private val store: Store) {
                     val o = hist.getJSONObject(i)
                     val cj = o.optJSONObject("curves")
                     val curves = if (cj != null) {
-                        cj.keys().asSequence().mapNotNull { k -> Store.doubles(cj.optJSONArray(k))?.let { k to it } }.toMap()
+                        cj.keys().asSequence().mapNotNull { k -> Store.curve(cj.optJSONArray(k))?.let { k to it } }.toMap()
                     } else {
                         // Äldre format: en enda kurva.
-                        (if (o.isNull("curve")) null else Store.doubles(o.optJSONArray("curve")))?.let { mapOf("Kurva" to it) } ?: emptyMap()
+                        (if (o.isNull("curve")) null else Store.curve(o.optJSONArray("curve")))?.let { mapOf("Kurva" to it) } ?: emptyMap()
                     }
                     SavedResult(
                         date = o.optString("date"),

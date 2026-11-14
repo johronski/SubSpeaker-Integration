@@ -60,7 +60,7 @@ fun BassLandscape(
         val fMin = 20.0
         val fMax = 300.0
         fun x(f: Double) = (ln(f / fMin) / ln(fMax / fMin) * size.width).toFloat()
-        val ref = freqs.indices.filter { freqs[it] in 80.0..125.0 }.map { db[it] }.average()
+        val ref = freqs.indices.filter { freqs[it] in 80.0..125.0 }.map { db[it] }.filter { it.isFinite() }.average()
         val range = 15.0
         fun y(v: Double) = (top + (bottom - top) * (0.5 - (v - ref) / (2 * range)).coerceIn(0.0, 1.0)).toFloat()
 
@@ -74,7 +74,8 @@ fun BassLandscape(
 
         fun path(c: DoubleArray): Path {
             val p = Path()
-            for (i in freqs.indices) {
+            // Bara basområdet (kurvorna går till 600 Hz sedan 0.8.9).
+            for (i in freqs.indices.filter { freqs[it] <= fMax && c[it].isFinite() }) {
                 val px = x(freqs[i])
                 val py = y(c[i])
                 if (i == 0) p.moveTo(px, py) else p.lineTo(px, py)
@@ -267,13 +268,16 @@ fun CurveExplorer(
 private fun Modifier.androidxClip() = this.then(Modifier.clip(androidx.compose.foundation.shape.CircleShape))
 private fun Modifier.androidxBg(c: Color) = this.then(Modifier.background(c))
 
-private fun snapshotColor(label: String): Color = when (label) {
+internal fun snapshotColor(label: String): Color = when (label) {
     "Fas 0" -> SeriesColors[1]
     "Fas 90" -> SeriesColors[2]
     "Fas 180" -> SeriesColors[3]
     "Fas 270" -> SeriesColors[4]
     "Jämförelse 1" -> SeriesColors[1]
     "Jämförelse 2" -> SeriesColors[2]
+    "Jämförelse 3" -> SeriesColors[4]
+    "Jämförelse 4" -> SeriesColors[5]
+    "Jämförelse 5" -> SeriesColors[7]
     else -> SeriesColors[4]
 }
 
@@ -314,7 +318,7 @@ fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johro
         )
     }
     val curves = buildList {
-        live.snapshots.forEach { add(ChartCurve(it.label, it.db, color = snapshotColor(it.label))) }
+        live.snapshots.forEach { add(ChartCurve(it.name, it.db, color = snapshotColor(it.label))) }
         live.startCurve?.let { add(ChartCurve("Start", it, color = Color(0xFF8A9294), dashed = true)) }
         live.curve?.let { add(ChartCurve("Nu", it, color = Accent, thick = true)) }
     }
@@ -329,7 +333,10 @@ fun LiveCurvePanel(services: se.johronski.subspeaker.AppServices, live: se.johro
     val ref = live.refDb ?: 0.0
     if (p != null) {
         val i = SweepAnalyzer.FREQUENCIES.indices.minByOrNull { kotlin.math.abs(SweepAnalyzer.FREQUENCIES[it] - p) } ?: 0
-        val values = curves.reversed().joinToString(" · ") { c -> String.format(java.util.Locale.ROOT, "%s %+.1f dB", c.label, c.db[i] - ref) }
+        val values = curves.reversed().joinToString(" · ") { c ->
+            val v = c.db[i] - ref
+            if (v.isFinite()) String.format(java.util.Locale.ROOT, "%s %+.1f dB", c.label, v) else "${c.label} –"
+        }
         androidx.compose.material3.Text(
             "${se.johronski.subspeaker.audio.SignalSpec.fmt(p)} Hz: $values",
             fontSize = 15.sp,
