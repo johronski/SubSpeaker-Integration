@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14, version **0.9.1**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-14 kväll, version **0.9.1**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -11,7 +11,8 @@ Integrera en **Velodyne SPL-1200R** (sub) med två **Genelec G Four** så att ba
 - **Kedja:** Pixel 6a (Android 17) → wifi → Chromecast Audio ("Vardagsrum/Hall Chromecast") → Velodynens linjeingång → Velodynens högpassutgång (80 Hz, 6 dB/okt) → Genelec G Four via RCA. Chromecastens volym är huvudvolym.
 - **Rum:** 3 × 10 m, takhöjd antagen 2,4 m. Sub i hörnet. Genelec längs väggen, **18 cm från väggen bakom**.
 - **Velodyne:** fjärrkontroll med fas 0/90/180/270, VOLUME ±, MUTE (tystar bara subben – Genelecerna spelar vidare), EQ, NIGHT, förinställningar. Lågpass (LPF) ställs på subben, cirka 90 Hz.
-- **Genelec DIP:** Bass **−4 dB** (grupp B: omkopplare 3 = 1, 4 = 0), övrigt 0. Manualen rekommenderar −4 för rum med mycket efterklang.
+- **Genelec DIP:** Bass **0** sedan 2026-11-14 20:15 (var −4), övrigt 0. Manualen: Bass är en hylla under 1 kHz med referens 100 Hz; −4 rekommenderas för rum med mycket efterklang, men mätningen gav bättre resultat med 0 (se nedan). Genelec anger rak frekvensgång utan reflexer ±2,5 dB 48 Hz–20 kHz (−6 dB vid 41 Hz); ingen oberoende mätning av G Four hittad.
+- **Velodyne nu:** fas **270**, nivå och lågpass (~90 Hz) oförändrade.
 - **Mikrofoner:** **miniDSP UMIK-1** finns sedan november 2026 och fungerar med telefonen via OTG. Telefonens inbyggda saknar obearbetad ljudkälla. Velodynens mikrofon har en tvåpolig TS-kontakt och **syns inte** via USB-C-adaptern – den kräver en CTIA-headsetsplitter.
 
 ## Vad mätningarna visat hittills
@@ -34,6 +35,15 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - Inbyggd mikrofon dämpar basen kraftigt och ger lägre (bättre) ojämnhet än UMIK-1 (3,2 mot 4,0 på samma plats). Jämför aldrig mellan mikrofonerna.
 - Det gamla ojämnhetstalet var okänsligt för smala djupa hål (10 dB-hål vid 85 Hz ändrade talet 2,75 → 2,69) och räknade en jämn lutning som jämn. Ersatt i 0.9.0, se *Mått*.
 - Balansmålet +3 dB är rimligt: en Harman-hylla på 5–7 dB motsvarar ungefär +2,5 … +3,5 dB i appens balansmått (bandet 100–250 Hz ligger delvis på hyllan). Tidigare påstående om att +3 är för lågt var fel.
+
+**2026-11-14 20:15–20:24, plats "trappmitt" (UMIK-1, Lugn medelvärde):**
+- Upprepning på samma plats: högst 0,08 dB skillnad över 40 Hz. A/B på samma plats är pålitligt.
+- **Genelec ensam, Bass 0 mot −4:** +3,5 dB 40–80 Hz, +2,7 dB 80–130, +2,2 dB 130–200, +1,1 dB 200–250, ±0,5 dB 250–600. Lutning 130–600 Hz 4,3 → 3,2 dB/okt. Hålet 85–130 Hz kvar med samma form. **Bass 0 valt.**
+- **Sub på, Bass 0:** ojämnhet 2,8, lutning −0,1 dB/okt. **Utsläckning 69–78 Hz:** vid 73 Hz är summan 4,5 dB *under* Genelec ensam → fas sub/Genelec, inte rum. Hålet vid 120 Hz −4,5 dB, där bidrar subben inte.
+- **Fas (Bass 0):** 0 → 3,6 (fyller 73 Hz men hål −7 dB 100–120), 90 → 3,1 (fyller 73 Hz men djupbas 40–60 Hz 2–4 dB svagare), 180 → 3,1 (hål −7 vid 120), **270 → 2,7** (hål −6,8 vid 73). 270 behålls; optimum ligger troligen mellan 270 och 0, som fjärrkontrollen inte når.
+- **Nivå (fas 270) mot målet:** 25–40 Hz +1,3, 40–63 +0,2, 63–80 −3,7, 80–160 −0,5, 160–250 +3,9, 250–400 +6,1, 400–600 +11 dB. Subnivån stämmer inom basen. Kurvan i rummet stiger ~10 dB från 130 till 500 Hz; eftersom G Four är rak utan reflexer kommer det från rum/placering/högpass, inte högtalaren. Bredare kurva (över 600 Hz) behövs för att avgöra om det är en lokal puckel – görs i REW, inte i appen (analysen är nedsamplad till 3 kHz, tak ~900 Hz utan ombyggnad).
+- **Lyssning:** användaren tycker att det låter bra; krispigare och luftigare än tidigare Bose Companion 20, men subben har blivit svårare att få att smälta ihop (troligen större överlapp när Genelec spelar mer ner mot 50–100 Hz med Bass 0 och Velodynens 6 dB/okt-högpass).
+- Smala hål hörs mindre än lika stora toppar (Bücklein 1981, JAES), därför prioriteras inte 73 Hz-hålet för sig.
 
 **2026-11-14 19:39, Jämförelse 3 (Genelec ensam, subben av, via Velodynens högpass):** 130–600 Hz inom ±4 dB, svag topp 330–550 Hz (+2…+4 dB, samma lutning som i närfält → högtalaren/Bass −4, inte rummet). Under 130 Hz 10–16 dB under målet (högpass 80 Hz + Bass −4 + hål 90–120 Hz). Wavelet-fil gjord (`SubSpeaker Genelec J3.txt`, GraphicEQ, bara sänkning ≤ 3,8 dB vid 330–550 Hz, 0 under 300 Hz). Rekommendation: prova Genelec Bass 0 i stället för EQ. Wavelets import ligger i AutoEq-menyn (bara hörlurar); EQ gäller bara ljud via telefonen.
 
@@ -85,6 +95,11 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - Tag-push ger 403 genom proxyn; releaser skapas därför via `version.txt`.
 
 ## Öppna punkter, i föreslagen ordning
+
+0. **Nästa gång (2026-11-14 kväll):**
+   - **Subben smälter inte ihop:** fråga hur det låter (från hörnet? dröjande/boomigt? toner som försvinner?). Prova lågpass ~80 Hz och mät om fas 270 mot 0 på samma plats.
+   - **Hålet 90–120 Hz:** geometrin är mer komplex än beskrivet (användaren förklarar senare). Tester med Genelec ensam i Live-kurva: (a) flytta mikrofonen i sidled bort från långväggen (t.ex. 0,4/0,75/1,2 m) – flyttar hålet sig är det breddmoden ~114 Hz / reflex c/(4d); (b) koppla ur en Genelec – försvinner hålet är det de två högtalarna mot varandra; (c) flytta en högtalare några dm i sidled – flyttar hålet sig är det reflex vid högtalaren.
+   - Referenslinjen förlängs **inte** till 500 Hz: nivån sätts över 25–200 Hz och för Genelec ensam drar bristen under 130 Hz ner linjen ~10 dB, så 130–500 Hz skulle se för högt ut.
 
 1. ~~Mät om platserna med UMIK-1~~ – gjort 2026-11-14 18:54, se ovan. **Öppen fråga till användaren:** sitter han i soffan, eller kan soffan flyttas till pianoväggen? Svaret avgör om EQ-testet (punkt 8) ska börja med toppen vid 30 Hz i soffan.
 1a. **Kontrollera 0.9.0 på telefonen:** Jämför platser och Sparade resultat ska visa samma tal som ovan för 18:54 (ojämnhet soffan ≈ 5,5, pianot ≈ 3,1). Hålet 85–130 Hz: mät en plats närmare rummets mitt i sidled (breddmod?) och prova fas 0/90/180/270 i sittplatsen.
