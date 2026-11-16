@@ -1,6 +1,6 @@
 # Överlämning – SubSpeaker Integration
 
-Senast uppdaterad 2026-11-14 kväll, version **0.9.1**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
+Senast uppdaterad 2026-11-16 kväll (rumsgeometri från planritning), version **0.9.1**. Klistra in länken till den här filen i en ny chatt för att fortsätta.
 
 ## Målet
 
@@ -9,7 +9,7 @@ Integrera en **Velodyne SPL-1200R** (sub) med två **Genelec G Four** så att ba
 ## Utrustning och rum
 
 - **Kedja:** Pixel 6a (Android 17) → wifi → Chromecast Audio ("Vardagsrum/Hall Chromecast") → Velodynens linjeingång → Velodynens högpassutgång (80 Hz, 6 dB/okt) → Genelec G Four via RCA. Chromecastens volym är huvudvolym.
-- **Rum:** 3 × 10 m, takhöjd antagen 2,4 m. Sub i hörnet. Genelec längs väggen, **18 cm från väggen bakom**.
+- **Rum (från planritning 2026-11-16, se nedan):** vardagsrum + matplats ca 10,8 m (nord–syd) × 3,9 m (öst–väst), öppet via valv mot kök och mot hall/trappa – i praktiken ett L-format rum på ca 70 m². Takhöjd okänd (antagen 2,4 m). Sub i nordvästra hörnet. Genelec mot sovrumsväggen (norr), **18 cm från väggen bakom**, spelar söderut.
 - **Velodyne:** fjärrkontroll med fas 0/90/180/270, VOLUME ±, MUTE (tystar bara subben – Genelecerna spelar vidare), EQ, NIGHT, förinställningar. Lågpass (LPF) ställs på subben, cirka 90 Hz.
 - **Genelec DIP:** Bass **0** sedan 2026-11-14 20:15 (var −4), övrigt 0. Manualen: Bass är en hylla under 1 kHz med referens 100 Hz; −4 rekommenderas för rum med mycket efterklang, men mätningen gav bättre resultat med 0 (se nedan). Genelec anger rak frekvensgång utan reflexer ±2,5 dB 48 Hz–20 kHz (−6 dB vid 41 Hz); ingen oberoende mätning av G Four hittad.
 - **Velodyne nu:** fas **270**, nivå och lågpass (~90 Hz) oförändrade.
@@ -53,6 +53,18 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 - **Alla fem har ett brett hål 85–130 Hz**, djupast runt 120 Hz. Flytt längs rummet hjälper alltså inte. Kandidater: summering sub/Genelec vid platsen, eller breddmod ~114 Hz (rummet 3 m). Toppar kan sänkas med EQ, hålet inte.
 - MSV fem platser 5,9 dB², utan soffan 4,3 dB².
 - Hälsokollens två kurvor (före/efter) har olika hål (135 mot 85 Hz) utan ändrad inställning – rörlig mikrofon ger viss slumpvariation.
+
+**2026-11-16, rummets geometri (planritning 1:67, ingen ny mätning; mått uppskattade ±0,2 m):**
+- **Orientering:** glasvägg/altan i väster (stort glasparti + dörr), sovrumsvägg i norr. Kök i sydost, hall och trappa i nordost; båda öppna mot vardagsrummet via valv. Öppen spis (ÖS) vid trappan.
+- **Volym:** vardagsrum + matplats ca 10,8 × 3,9 m, djupet ökar till ca 7,5 m vid köket. Trappan kopplar till ev. övervåning. "Rummet 3 m" i tidigare text är för smalt.
+- **Placering:** västra Genelec ca 0,9 m från glasväggen, östra ca 2,4 m, inbördes ca 1,5 m. Sub i hörnet sovrumsvägg/glasvägg, ca 0,9 m från västra Genelec.
+- **Lyssningsplats:** i höjd med öppna spisen, mitt emellan Genelec – ca 3,4 m från sovrumsväggen, 1,6 m från glasväggen. Avstånd ≈ 3,3 m till varje Genelec, ≈ 3,4 m till subben (skillnad ~0,1 m).
+- **Värmepump** i hallen (öppen mot rummet); avstängd vid alla mätningar.
+- **Slutsatser om hålet 85–130 Hz:**
+  - Inte sub/Genelec – hålet finns i Genelec ensam (20:15–20:24). (I chatten 2026-11-16 pekades utsläckning sub/Genelec felaktigt ut som huvudmisstanke innan hela överlämningen var läst.)
+  - Reflex från glasväggen (västra Genelec): vid lyssningsplatsen ≈ 0,75 m omväg → hål ≈ 230 Hz, inte 120. c/(4d) ≈ 95 Hz gäller bara rakt ut från väggen. Osannolik vid lyssningsplatsen, men kan bidra på platser närmare glasväggen.
+  - Breddmod: med 3,9 m bredd ligger axialmoderna ca 44, 88 och 132 Hz (inte 114); oregelbunden bredd gör dem osäkra. En breddmod ändras inte när man flyttar sig *längs* rummet – att hålet finns på alla fem platser utesluter den alltså inte. Sidledsflytt (test a) avgör.
+  - Takreflex: okänd tills takhöjd och höjd på Genelecs baselement är mätta. Med 2,4 m och element 0,7–1,0 m blir hålet ca 140–170 Hz – troligen inte huvudorsak.
 
 ## Appen i dag (0.9.1)
 
@@ -98,7 +110,8 @@ Bara en riktig rapport finns (v0.6.3, svepmätning, 3 platser):
 
 0. **Nästa gång (2026-11-14 kväll):**
    - **Subben smälter inte ihop:** fråga hur det låter (från hörnet? dröjande/boomigt? toner som försvinner?). Prova lågpass ~80 Hz och mät om fas 270 mot 0 på samma plats.
-   - **Hålet 90–120 Hz:** geometrin är mer komplex än beskrivet (användaren förklarar senare). Tester med Genelec ensam i Live-kurva: (a) flytta mikrofonen i sidled bort från långväggen (t.ex. 0,4/0,75/1,2 m) – flyttar hålet sig är det breddmoden ~114 Hz / reflex c/(4d); (b) koppla ur en Genelec – försvinner hålet är det de två högtalarna mot varandra; (c) flytta en högtalare några dm i sidled – flyttar hålet sig är det reflex vid högtalaren.
+   - **Mät takhöjd och höjd på Genelecs baselement** (användaren återkommer) → räkna takreflexen.
+   - **Hålet 90–120 Hz:** geometrin beskriven 2026-11-16 (se ovan); testerna nedan gäller fortfarande. Tester med Genelec ensam i Live-kurva: (a) flytta mikrofonen i sidled bort från långväggen (t.ex. 0,4/0,75/1,2 m) – flyttar hålet sig är det breddmoden ~114 Hz / reflex c/(4d); (b) koppla ur en Genelec – försvinner hålet är det de två högtalarna mot varandra; (c) flytta en högtalare några dm i sidled – flyttar hålet sig är det reflex vid högtalaren.
    - Referenslinjen förlängs **inte** till 500 Hz: nivån sätts över 25–200 Hz och för Genelec ensam drar bristen under 130 Hz ner linjen ~10 dB, så 130–500 Hz skulle se för högt ut.
 
 1. ~~Mät om platserna med UMIK-1~~ – gjort 2026-11-14 18:54, se ovan. **Öppen fråga till användaren:** sitter han i soffan, eller kan soffan flyttas till pianoväggen? Svaret avgör om EQ-testet (punkt 8) ska börja med toppen vid 30 Hz i soffan.
