@@ -13,7 +13,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import se.johronski.subspeaker.audio.BassMetrics
-import se.johronski.subspeaker.audio.Decision
 import se.johronski.subspeaker.audio.SignalServer
 import se.johronski.subspeaker.audio.SweepAnalyzer
 import se.johronski.subspeaker.audio.SweepRecorder
@@ -26,7 +25,7 @@ class SweepController(private val services: AppServices, private val store: Stor
 
     data class Curve(
         val label: String,
-        /** "free" för fria mätningar, annars guidens steg: "mic", "phase", "level", "genelec". */
+        /** "free" för fria mätningar. Äldre mätningar från den borttagna guiden har "mic", "phase", "level" eller "genelec"; de exporteras men visas inte. */
         val stage: String,
         /** Inställningen som jämförs, t.ex. "Fas 90". Mätningar med samma grupp medelvärdesbildas. */
         val group: String,
@@ -63,13 +62,7 @@ class SweepController(private val services: AppServices, private val store: Stor
         val minSnrDb: Double,
         val lo: DoubleArray,
         val hi: DoubleArray,
-        val perPosition: Map<Int, Double>,
-    ) {
-        fun option() = Decision.Option(label, flatnessDb, perPosition)
-    }
-
-    /** Resultat av nivåkollen före mätningarna. */
-    data class LevelCheck(val ok: Boolean, val text: String, val snrDb: Double, val peakDbfs: Double)
+    )
 
     data class State(
         val busy: Boolean = false,
@@ -80,7 +73,6 @@ class SweepController(private val services: AppServices, private val store: Stor
         val delaySeconds: Int = 10,
         /** Antal svep per mätning. Flera svep medelvärdesbildas och kontrolleras mot varandra. */
         val repeats: Int = 1,
-        val check: LevelCheck? = null,
         /** Klar-andel av pågående mätning, 0–1, för förloppsindikatorn. */
         val progress: Float = 0f,
     ) {
@@ -94,12 +86,9 @@ class SweepController(private val services: AppServices, private val store: Stor
                     val n = avg.size
                     val lo = DoubleArray(n) { i -> list.minOf { it.db[i] } }
                     val hi = DoubleArray(n) { i -> list.maxOf { it.db[i] } }
-                    val perPos = list.groupBy { it.position }.mapValues { (_, c) ->
-                        BassMetrics.unevenness(SweepAnalyzer.powerAverage(c.map { it.db }))
-                    }
                     Group(
                         list.first().group.trim(), list.size, avg, mean, BassMetrics.unevenness(avg),
-                        list.minOf { it.snrDb }, lo, hi, perPos,
+                        list.minOf { it.snrDb }, lo, hi,
                     )
                 }
 
@@ -117,23 +106,12 @@ class SweepController(private val services: AppServices, private val store: Stor
     /** Skriver mätningarna till fil i tur och ordning, utanför huvudtråden. */
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    fun measure(
-        label: String,
-        stage: String = "free",
-        group: String = label,
-        position: Int = 0,
-        task: String = group,
-        levelStep: Int? = null,
-    ) = run(label, stage, group, position, task, levelStep)
-
-    /** Ett svep för att kontrollera att nivån är lagom innan de riktiga mätningarna. */
-    fun levelCheck() = run("Nivåkoll", "check", "check", 0, "check", null)
-
-    private fun run(label: String, stage: String, group: String, position: Int, task: String, levelStep: Int?) {
+    /** Fri mätning: mätningar med samma namn medelvärdesbildas. */
+    fun measure(label: String) {
         if (_state.value.busy) return
         val spec = SweepAnalyzer.SWEEP
-        val delaySeconds = if (stage == "check") minOf(_state.value.delaySeconds, 5) else _state.value.delaySeconds
-        val repeats = if (stage == "check") 1 else _state.value.repeats
+        val delaySeconds = _state.value.delaySeconds
+        val repeats = _state.value.repeats
         val settings = services.settings.value
         val useCast = settings.output == Output.CAST
         val source = services.micSource()
@@ -207,37 +185,20 @@ class SweepController(private val services: AppServices, private val store: Stor
                 }
 
                 val snr = results.minOf { it.snrDb }
-                if (stage == "check") {
-                    val peak = results.maxOf { it.peakDbfs }
-                    val c = when {
-                        peak > -3.0 -> LevelCheck(false, "För starkt – mikrofonen överstyrs. Sänk volymen lite och kör nivåkollen igen.", snr, peak)
-                        snr < 25 -> LevelCheck(false, "För svagt (brusmarginal ${snr.toInt()} dB). Höj volymen och kör nivåkollen igen.", snr, peak)
-                        else -> LevelCheck(true, "Lagom nivå (brusmarginal ${snr.toInt()} dB). Du kan börja mäta.", snr, peak)
-                    }
-                    set { it.copy(busy = false, status = "", check = c, progress = 1f) }
-                    services.signalDone()
-                    return@launch
-                }
-
                 val db = SweepAnalyzer.powerAverage(results.map { it.db })
                 val spread = if (results.size > 1) SweepAnalyzer.repeatSpread(results.map { it.db }) else null
-                // I mikrofonkollen namnges mätningen efter mikrofonen som faktiskt användes,
-                // så att två mikrofoner aldrig slås ihop.
-                val micLabel = if (stage == "mic" && device.isNotBlank()) "Mikrofon · $device" else null
-                val name = micLabel ?: label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
+                val name = label.ifBlank { "Mätning ${_state.value.curves.size + 1}" }
                 val curve = Curve(
                     label = name,
-                    stage = stage,
-                    group = micLabel ?: group.ifBlank { name },
-                    position = position,
+                    stage = "free",
+                    group = name,
+                    position = 0,
                     time = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date()),
                     db = db,
                     delaySeconds = results.first().delaySeconds,
                     snrDb = snr,
                     device = device,
                     repeatSpreadDb = spread,
-                    task = if (micLabel != null) micLabel else task,
-                    levelStep = levelStep,
                     irs = results.map { it.ir },
                     irStarts = results.map { it.irStart },
                     latencies = latencies,
@@ -299,8 +260,6 @@ class SweepController(private val services: AppServices, private val store: Stor
         set { it.copy(curves = it.curves.filter { c -> c.stage != stage }, error = null, status = "") }
         save()
     }
-
-    fun clearCheck() = set { it.copy(check = null) }
 
     fun restore(curves: List<Curve>) {
         set { it.copy(curves = curves, status = "", error = null) }

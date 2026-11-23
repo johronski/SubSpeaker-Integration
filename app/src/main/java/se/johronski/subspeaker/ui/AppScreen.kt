@@ -81,8 +81,6 @@ import se.johronski.subspeaker.audio.SignalSpec
 import se.johronski.subspeaker.audio.ToneGrid
 import java.util.Locale
 
-private val tabs = listOf("Guide", "Lyssna", "Mät", "Felsökning")
-
 /** Gemensamt för alla flikar: om mätning och uppspelning är möjlig. */
 class Setup(
     val hasMicPermission: Boolean,

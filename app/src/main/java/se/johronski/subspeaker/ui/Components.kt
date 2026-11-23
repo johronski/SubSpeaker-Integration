@@ -36,7 +36,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import se.johronski.subspeaker.AppServices
-import se.johronski.subspeaker.audio.Decision
 import se.johronski.subspeaker.audio.SignalSpec
 import se.johronski.subspeaker.audio.ToneGrid
 import java.util.Locale
@@ -109,45 +108,6 @@ fun ChoiceRow(text: String, selected: Boolean, onClick: () -> Unit) {
         RadioButton(selected = selected, onClick = onClick)
         Text(text, fontSize = 16.sp)
     }
-}
-
-/** Liten etikett som anger hur säkert ett utslag är. */
-@Composable
-fun ConfidenceBadge(c: Decision.Confidence) {
-    val (text, bg, fg) = when (c) {
-        Decision.Confidence.SURE -> Triple("Säker", GoodSoft, Good)
-        Decision.Confidence.LIKELY -> Triple("Trolig", AccentSoft, Accent)
-        Decision.Confidence.UNSURE -> Triple("Oklar", CardAlt, InkMuted)
-    }
-    Text(
-        text,
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Medium,
-        color = fg,
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(bg)
-            .padding(horizontal = 10.dp, vertical = 3.dp),
-    )
-}
-
-@Composable
-fun VerdictText(v: Decision.Verdict, name: (String) -> String = { it }) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Jämnast: ${name(v.best.key)}", fontSize = 17.sp, fontWeight = FontWeight.Medium)
-        ConfidenceBadge(v.confidence)
-    }
-    Muted(
-        String.format(
-            Locale.ROOT,
-            "%.1f dB jämnare än %s.",
-            v.marginDb, name(v.runnerUp.key),
-        ) + if (v.confidence == Decision.Confidence.UNSURE) {
-            " Skillnaden är mindre än mätningens osäkerhet – välj vilket som helst av de bästa, eller mät på fler platser."
-        } else {
-            ""
-        },
-    )
 }
 
 /** Rad i diagrammets förklaring. Tryck för att markera kurvan. */
