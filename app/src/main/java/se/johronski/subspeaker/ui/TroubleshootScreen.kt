@@ -45,7 +45,6 @@ fun TroubleshootScreen(services: AppServices, setup: Setup) {
     val local by services.local.state.collectAsState()
     val mic by services.mic.state.collectAsState()
     val sweep by services.sweep.state.collectAsState()
-    val guide by services.guide.state.collectAsState()
     val readings by services.readings.collectAsState()
     val serverError by services.serverError.collectAsState()
     var serverTest by remember { mutableStateOf<String?>(null) }
@@ -110,7 +109,7 @@ fun TroubleshootScreen(services: AppServices, setup: Setup) {
                 "\nTELEFONUPPSPELNING\nVald källa: ${settings.output.label}\nUtgång: ${local.routedDevice ?: "–"}\n" +
                 "Metod: ${local.method?.label ?: settings.method.label}\nAppens nivå: ${(settings.localGain * 100).toInt()} %\n" +
                 "Status: ${local.debug}\nFel: ${local.error ?: "–"}\n" +
-                sweepReport(sweep) + guideReport(sweep, guide.targetBalance, guide.subBaseline)
+                sweepReport(sweep)
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_SUBJECT, "SubSpeaker diagnosrapport")
@@ -234,43 +233,4 @@ private fun sweepReport(sweep: se.johronski.subspeaker.SweepController.State): S
         )
     }
     sweep.best?.let { appendLine("  Jämnast 40–150 Hz: ${it.label}") }
-}
-
-private fun guideReport(sweep: se.johronski.subspeaker.SweepController.State, target: Double, baseline: Int?): String = buildString {
-    appendLine()
-    appendLine("GUIDE")
-    val f = se.johronski.subspeaker.audio.SweepAnalyzer.FREQUENCIES
-    val idx = listOf(20.0, 25.0, 31.5, 40.0, 50.0, 63.0, 80.0, 100.0, 125.0, 160.0, 200.0, 250.0)
-        .map { t -> f.indices.minByOrNull { kotlin.math.abs(f[it] - t) }!! }
-    for (stage in listOf("mic", "phase", "level", "genelec")) {
-        val groups = sweep.groupsFor(stage)
-        if (groups.isEmpty()) continue
-        appendLine("  [$stage]")
-        groups.forEach { g ->
-            appendLine(
-                String.format(Locale.ROOT, "  %s (n=%d, avvikelse ±%.1f, nivå %.1f, per plats %s): ",
-                    g.label, g.count, g.flatnessDb, g.meanDb,
-                    g.perPosition.entries.sortedBy { it.key }.joinToString(",") { String.format(Locale.ROOT, "%d:%.1f", it.key, it.value) },
-                ) + idx.joinToString(" ") { String.format(Locale.ROOT, "%.1f", g.db[it]) },
-            )
-        }
-    }
-    se.johronski.subspeaker.Guide.phaseVerdict(sweep)?.let {
-        appendLine(String.format(Locale.ROOT, "  Fas: %s, %s (marginal %.1f dB)", it.best.key, it.confidence.text, it.marginDb))
-    }
-    se.johronski.subspeaker.Guide.levelBalance(sweep).toSortedMap().forEach { (k, v) ->
-        appendLine(String.format(Locale.ROOT, "  Basbalans vid steg %+d: %+.1f dB", k, v))
-    }
-    se.johronski.subspeaker.Guide.levelAdvice(sweep, target)?.let {
-        appendLine(
-            String.format(
-                Locale.ROOT, "  Nivå: %+d steg (mål %+.0f dB, %.2f dB/steg)%s",
-                it.step, target, it.dbPerStep, it.warning?.let { w -> " – $w" } ?: "",
-            ),
-        )
-    }
-    baseline?.let { appendLine("  Subbens display i utgångsläget: $it") }
-    se.johronski.subspeaker.Guide.genelecVerdict(sweep)?.let {
-        appendLine(String.format(Locale.ROOT, "  Genelec: %s, %s", it.best.key, it.confidence.text))
-    }
 }

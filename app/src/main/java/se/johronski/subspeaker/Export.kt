@@ -53,8 +53,6 @@ object Export {
                                 .put("correctionDbOnGrid", Store.doubles(c.onGrid))
                         } ?: JSONObject.NULL,
                     )
-                    .put("genelecBass", guide.genelecBass)
-                    .put("subDisplayBaseline", guide.subBaseline ?: JSONObject.NULL)
                     .put("targetBalance", guide.targetBalance),
             )
             .put(
